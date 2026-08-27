@@ -48,7 +48,7 @@ test("start stores PKCE verifier and returns Bouquet authorization redirect", as
   assert.equal(location.searchParams.get("state"), "state-1");
   assert.equal(location.searchParams.get("code_challenge"), "challenge-1");
   assert.match(response.cookies?.[0] ?? "", /^tulip_oauth_state=state-1;/);
-  assert.deepEqual(transient.consume("state-1"), { codeVerifier: "v".repeat(43), returnTo: "/onboarding/home" });
+  assert.deepEqual(await transient.consume("state-1"), { codeVerifier: "v".repeat(43), returnTo: "/onboarding/home" });
 });
 
 test("callback rejects missing or replayed state before exchanging code", async () => {
@@ -69,7 +69,7 @@ test("callback rejects missing or replayed state before exchanging code", async 
 
 test("callback exchanges code, creates session cookie, and prevents state replay", async () => {
   const transient = new InMemoryTransientAuthStore();
-  transient.save("state-1", { codeVerifier: "verifier-1", returnTo: "/today" });
+  await transient.save("state-1", { codeVerifier: "verifier-1", returnTo: "/today" });
   let exchangeInput: string[] = [];
   const sessions = new InMemoryTulipSessionStore({ createToken: () => "opaque-session" });
   const controller = new BouquetSsoController({
@@ -83,14 +83,14 @@ test("callback exchanges code, creates session cookie, and prevents state replay
 
   const noBrowserBinding = await controller.callback({ code: "code-1", state: "state-1" });
   assert.equal(noBrowserBinding.status, 400);
-  transient.save("state-1", { codeVerifier: "verifier-1", returnTo: "/today" });
+  await transient.save("state-1", { codeVerifier: "verifier-1", returnTo: "/today" });
 
   const response = await controller.callback({ code: "code-1", state: "state-1", cookieHeader: "tulip_oauth_state=state-1" });
   assert.equal(response.status, 302);
   assert.equal(response.headers.Location, "/today");
   assert.match(response.cookies?.find((cookie) => cookie.startsWith("tulip_session=")) ?? "", /^tulip_session=opaque-session;/);
   assert.deepEqual(exchangeInput, ["code-1", "verifier-1"]);
-  assert.deepEqual(sessions.resolve("opaque-session"), { userId: "bouquet-user", displayName: "Tulip User" });
+  assert.deepEqual(await sessions.resolve("opaque-session"), { userId: "bouquet-user", displayName: "Tulip User" });
   assert.equal(JSON.stringify(response.cookies).includes("access-secret"), false);
 
   const replay = await controller.callback({ code: "code-1", state: "state-1", cookieHeader: "tulip_oauth_state=state-1" });
@@ -99,7 +99,7 @@ test("callback exchanges code, creates session cookie, and prevents state replay
 
 test("logout revokes cookie session and returns a clearing cookie", async () => {
   const sessions = new InMemoryTulipSessionStore({ createToken: () => "opaque-session" });
-  sessions.create({ userId: "bouquet-user" });
+  await sessions.create({ userId: "bouquet-user" });
   const controller = new BouquetSsoController({
     config,
     oauth: oauth(),
@@ -112,7 +112,7 @@ test("logout revokes cookie session and returns a clearing cookie", async () => 
   const response = await controller.logout("other=1; tulip_session=opaque-session; theme=dark");
   assert.equal(response.status, 204);
   assert.match(response.cookies?.[0] ?? "", /Max-Age=0/);
-  assert.equal(sessions.resolve("opaque-session"), null);
+  assert.equal(await sessions.resolve("opaque-session"), null);
 });
 
 test("controller awaits asynchronous auth stores across start, callback, and logout", async () => {
