@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTulipWebRuntime } from "../apps/web/src/server/tulip-runtime.ts";
 
-const env = {
+const baseEnv = {
   BOUQUET_AUTHORIZATION_URL: "https://auth.example/authorize",
   BOUQUET_TOKEN_URL: "https://auth.example/token",
   BOUQUET_USERINFO_URL: "https://auth.example/userinfo",
@@ -11,12 +11,17 @@ const env = {
   TULIP_POST_LOGIN_URL: "/api/auth/post-login"
 };
 
+const memoryEnv = {
+  ...baseEnv,
+  TULIP_PERSISTENCE_MODE: "memory"
+};
+
 test("runtime converts Bouquet callback into an HttpOnly session accepted by Tulip API", async () => {
-  const runtime = createTulipWebRuntime(env, async (url) => {
-    if (String(url) === env.BOUQUET_TOKEN_URL) {
+  const runtime = createTulipWebRuntime(memoryEnv, async (url) => {
+    if (String(url) === memoryEnv.BOUQUET_TOKEN_URL) {
       return new Response(JSON.stringify({ access_token: "bouquet-access" }), { status: 200 });
     }
-    if (String(url) === env.BOUQUET_USERINFO_URL) {
+    if (String(url) === memoryEnv.BOUQUET_USERINFO_URL) {
       return new Response(JSON.stringify({ sub: "bouquet-user-1", name: "Tulip User" }), { status: 200 });
     }
     throw new Error(`unexpected fetch: ${url}`);
@@ -35,7 +40,14 @@ test("runtime converts Bouquet callback into an HttpOnly session accepted by Tul
 });
 
 test("runtime rejects Tulip API requests without the opaque session cookie", async () => {
-  const runtime = createTulipWebRuntime(env, async () => new Response("{}", { status: 500 }));
+  const runtime = createTulipWebRuntime(memoryEnv, async () => new Response("{}", { status: 500 }));
   const response = await runtime.handleApi({ method: "GET", path: "/v1/me" });
   assert.equal(response.status, 401);
+});
+
+test("runtime requires DATABASE_URL unless in-memory persistence is explicitly selected", () => {
+  assert.throws(
+    () => createTulipWebRuntime(baseEnv, async () => new Response("{}", { status: 500 })),
+    /DATABASE_URL is required/
+  );
 });

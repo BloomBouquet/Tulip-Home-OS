@@ -18,6 +18,19 @@ import {
   InMemoryRoutineRepository,
   InMemoryTaskOccurrenceRepository
 } from "../../../api/src/persistence/in-memory-repositories.ts";
+import { createPgPoolExecutor } from "../../../api/src/persistence/pg-executor.ts";
+import {
+  PostgresHomeItemRepository,
+  PostgresHomeRepository,
+  PostgresRoutineRepository,
+  PostgresTaskOccurrenceRepository
+} from "../../../api/src/persistence/postgres-repositories.ts";
+import type {
+  HomeItemRepository,
+  HomeRepository,
+  RoutineRepository,
+  TaskOccurrenceRepository
+} from "../../../api/src/persistence/repositories.ts";
 import { RoutineService } from "../../../api/src/routines/routine-service.ts";
 import { RepositoryTodaySource } from "../../../api/src/today/repository-today-source.ts";
 import type { WasteScheduleProvider } from "../../../api/src/waste/waste-provider.ts";
@@ -58,9 +71,47 @@ const emptyWasteProvider: WasteScheduleProvider = {
   }
 };
 
+interface RuntimePersistence {
+  homes: HomeRepository;
+  routines: RoutineRepository;
+  items: HomeItemRepository;
+  occurrences: TaskOccurrenceRepository;
+  close(): Promise<void>;
+}
+
+function createRuntimePersistence(env: Record<string, string | undefined>): RuntimePersistence {
+  const mode = env.TULIP_PERSISTENCE_MODE?.trim().toLowerCase();
+
+  if (mode === "memory") {
+    return {
+      homes: new InMemoryHomeRepository(),
+      routines: new InMemoryRoutineRepository(),
+      items: new InMemoryHomeItemRepository(),
+      occurrences: new InMemoryTaskOccurrenceRepository(),
+      async close() {}
+    };
+  }
+
+  if (mode && mode !== "postgres") {
+    throw new RangeError("TULIP_PERSISTENCE_MODE must be postgres or memory");
+  }
+
+  const sql = createPgPoolExecutor(env.DATABASE_URL);
+  return {
+    homes: new PostgresHomeRepository(sql),
+    routines: new PostgresRoutineRepository(sql),
+    items: new PostgresHomeItemRepository(sql),
+    occurrences: new PostgresTaskOccurrenceRepository(sql),
+    async close() {
+      await sql.close();
+    }
+  };
+}
+
 export interface TulipWebRuntime {
   sso: BouquetSsoController;
   handleApi(request: ApiRequest, cookieHeader?: string): Promise<ApiResponse>;
+  close(): Promise<void>;
 }
 
 export function createTulipWebRuntime(
@@ -72,11 +123,8 @@ export function createTulipWebRuntime(
   const transient = new InMemoryTransientAuthStore();
   const oauth = new BouquetOAuthClient(config, fetcher);
   const sso = new BouquetSsoController({ config, oauth, transient, sessions });
-
-  const homes = new InMemoryHomeRepository();
-  const routines = new InMemoryRoutineRepository();
-  const items = new InMemoryHomeItemRepository();
-  const occurrences = new InMemoryTaskOccurrenceRepository();
+  const persistence = createRuntimePersistence(env);
+  const { homes, routines, items, occurrences } = persistence;
   const now = () => new Date();
   const createId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
 
@@ -105,6 +153,9 @@ export function createTulipWebRuntime(
           ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {})
         }
       });
+    },
+    async close() {
+      await persistence.close();
     }
   };
 }

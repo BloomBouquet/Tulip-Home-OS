@@ -4,7 +4,7 @@ Team Tulip's Personal Home OS MVP foundation, built with the Luna Agent System w
 
 ## Current milestone
 
-Implemented and verified without external runtime dependencies:
+Implemented and verified:
 
 - shared Home OS contracts
 - recurrence engine
@@ -22,26 +22,46 @@ Implemented and verified without external runtime dependencies:
 - one-Home onboarding domain service
 - authenticated framework-independent REST router
 - Routine/HomeItem CRUD, Today, complete/undo, and history HTTP routes
+- PostgreSQL persistence for Home, Routine, HomeItem, and TaskOccurrence
+- PostgreSQL 17 integration verification in GitHub Actions
+- one-Home-per-owner database constraint
 
 ## Verification
 
-The sandbox cannot reach the npm registry, so the Next.js dependency installation/build cannot be run here.
-Core TypeScript and behavior tests can be verified with globally available Node.js and TypeScript:
-
-```bash
-npm run typecheck:core
-npm run test:core
-# current result: 91 tests, 0 failures
-```
-
-When normal network access is available:
+GitHub Actions verifies the same core behavior plus a real PostgreSQL 17 service and the full Next.js production build.
 
 ```bash
 corepack enable
 pnpm install
+npm run verify:core
+npm run typecheck:web:offline
 pnpm verify
-pnpm --filter @tulip/web dev
 ```
+
+For the PostgreSQL integration test, provide a dedicated test database:
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/tulip_test npm run test:postgres
+```
+
+## PostgreSQL setup
+
+Production runtime defaults to PostgreSQL persistence. `DATABASE_URL` is required unless in-memory persistence is explicitly selected for local/test use.
+
+```text
+DATABASE_URL=postgresql://user:password@host:5432/tulip
+# local/test-only escape hatch
+TULIP_PERSISTENCE_MODE=memory
+```
+
+Apply migrations in numeric order before starting the application:
+
+```bash
+psql "$DATABASE_URL" -f apps/api/db/migrations/001_initial.sql
+psql "$DATABASE_URL" -f apps/api/db/migrations/002_unique_home_owner.sql
+```
+
+Do not rewrite an already-applied migration. Add the next numbered migration for future schema changes.
 
 ## Bouquet SSO environment contract
 
@@ -60,7 +80,7 @@ BOUQUET_CLIENT_SECRET=...
 
 Production endpoints must use HTTPS. `http://localhost` and `http://127.0.0.1` are accepted only for local development.
 
-The current web runtime uses in-memory OAuth state, Tulip sessions, and domain repositories so the complete flow can be tested without external packages. Before multi-instance or durable deployment, replace those adapters with shared/durable stores.
+Home, Routine, HomeItem, and TaskOccurrence data is durable in PostgreSQL. OAuth transient state and Tulip sessions are still process-local in-memory stores; shared session/state persistence is the next step before multi-instance authentication deployment.
 
 ## Repository
 
