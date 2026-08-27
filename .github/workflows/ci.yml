@@ -39,6 +39,9 @@ jobs:
       - name: Verify core behavior
         run: npm run verify:core
 
+      - name: Verify PostgreSQL integration
+        run: npm run test:postgres
+
       - name: Verify offline web types
         run: npm run typecheck:web:offline
 
