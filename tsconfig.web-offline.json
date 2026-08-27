@@ -2,7 +2,8 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "types": []
   },
   "include": [
     "types/web-offline-shims.d.ts",
