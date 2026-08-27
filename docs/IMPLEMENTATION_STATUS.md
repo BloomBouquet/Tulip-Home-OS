@@ -25,12 +25,14 @@
 - Bouquet bearer-authenticated HTTP router
 - Home / Routine / HomeItem / Today / occurrence / history REST routes
 - Strict YYYY-MM-DD calendar validation at the HTTP boundary
+- Runtime category / recurrence discriminant validation for untrusted HTTP JSON
+- Malformed percent-encoded resource paths return 400 instead of 500
 
 ## Verified in this environment
 
 - `npm run verify:core`
   - TypeScript core typecheck: PASS
-  - Node core behavior tests: **58 passing, 0 failing**
+  - Node core behavior tests: **62 passing, 0 failing**
 - `npm run typecheck:web:offline`: PASS
 - `git diff --check`: PASS
 

@@ -26,7 +26,7 @@ Core TypeScript and behavior tests can be verified with globally available Node.
 ```bash
 npm run typecheck:core
 npm run test:core
-# current result: 58 tests, 0 failures
+# current result: 62 tests, 0 failures
 ```
 
 When normal network access is available:

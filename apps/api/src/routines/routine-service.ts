@@ -42,6 +42,7 @@ function validateCategory(category: RoutineCategory): RoutineCategory {
   return category;
 }
 
+
 function requireIsoDate(value: string, fieldName: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new RangeError(`${fieldName} must be a valid date`);
