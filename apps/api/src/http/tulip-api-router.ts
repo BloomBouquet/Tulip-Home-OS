@@ -74,10 +74,19 @@ export class TulipApiRouter {
       const method = request.method.toUpperCase();
       const path = request.path.replace(/\/+$/, "") || "/";
 
-      if (method === "GET" && path === "/v1/me") return response(200, identity);
-      if (method === "POST" && path === "/v1/homes") return response(201, await this.dependencies.homes.create(identity.userId, asObject(request.body) as any));
-      if (method === "GET" && path === "/v1/homes/current") return response(200, await this.dependencies.homes.getCurrent(identity.userId));
-      if (method === "PATCH" && path === "/v1/homes/current") return response(200, await this.dependencies.homes.updateCurrent(identity.userId, asObject(request.body) as any));
+      if (method === "GET" && path === "/v1/me") {
+        return response(200, identity);
+      }
+
+      if (method === "POST" && path === "/v1/homes") {
+        return response(201, await this.dependencies.homes.create(identity.userId, asObject(request.body) as any));
+      }
+      if (method === "GET" && path === "/v1/homes/current") {
+        return response(200, await this.dependencies.homes.getCurrent(identity.userId));
+      }
+      if (method === "PATCH" && path === "/v1/homes/current") {
+        return response(200, await this.dependencies.homes.updateCurrent(identity.userId, asObject(request.body) as any));
+      }
 
       if (method === "GET" && path === "/v1/today") {
         const home = await this.dependencies.homes.getCurrent(identity.userId);
@@ -86,7 +95,9 @@ export class TulipApiRouter {
       }
 
       if (path === "/v1/routines") {
-        if (method === "POST") return response(201, await this.dependencies.routines.create(identity.userId, asObject(request.body) as any));
+        if (method === "POST") {
+          return response(201, await this.dependencies.routines.create(identity.userId, asObject(request.body) as any));
+        }
         if (method === "GET") {
           const homeId = request.query?.homeId;
           if (!homeId) throw new RangeError("homeId is required");
@@ -97,7 +108,9 @@ export class TulipApiRouter {
       const routineMatch = path.match(/^\/v1\/routines\/([^/]+)$/);
       if (routineMatch) {
         const id = decodeURIComponent(routineMatch[1]);
-        if (method === "PATCH") return response(200, await this.dependencies.routines.update(identity.userId, id, asObject(request.body) as any));
+        if (method === "PATCH") {
+          return response(200, await this.dependencies.routines.update(identity.userId, id, asObject(request.body) as any));
+        }
         if (method === "DELETE") {
           await this.dependencies.routines.delete(identity.userId, id);
           return response(204);
@@ -105,7 +118,9 @@ export class TulipApiRouter {
       }
 
       if (path === "/v1/items") {
-        if (method === "POST") return response(201, await this.dependencies.items.create(identity.userId, asObject(request.body) as any));
+        if (method === "POST") {
+          return response(201, await this.dependencies.items.create(identity.userId, asObject(request.body) as any));
+        }
         if (method === "GET") {
           const homeId = request.query?.homeId;
           if (!homeId) throw new RangeError("homeId is required");
@@ -116,8 +131,12 @@ export class TulipApiRouter {
       const itemMatch = path.match(/^\/v1\/items\/([^/]+)$/);
       if (itemMatch) {
         const id = decodeURIComponent(itemMatch[1]);
-        if (method === "GET") return response(200, await this.dependencies.items.get(identity.userId, id));
-        if (method === "PATCH") return response(200, await this.dependencies.items.update(identity.userId, id, asObject(request.body) as any));
+        if (method === "GET") {
+          return response(200, await this.dependencies.items.get(identity.userId, id));
+        }
+        if (method === "PATCH") {
+          return response(200, await this.dependencies.items.update(identity.userId, id, asObject(request.body) as any));
+        }
         if (method === "DELETE") {
           await this.dependencies.items.delete(identity.userId, id);
           return response(204);
@@ -142,9 +161,15 @@ export class TulipApiRouter {
 
       return response(404, { error: "NOT_FOUND" });
     } catch (error) {
-      if (error instanceof BouquetAuthenticationError) return response(401, { error: "UNAUTHORIZED" });
-      if (error instanceof NotFoundError) return response(404, { error: "NOT_FOUND" });
-      if (error instanceof RangeError || error instanceof TypeError) return response(400, { error: "BAD_REQUEST", message: error.message });
+      if (error instanceof BouquetAuthenticationError) {
+        return response(401, { error: "UNAUTHORIZED" });
+      }
+      if (error instanceof NotFoundError) {
+        return response(404, { error: "NOT_FOUND" });
+      }
+      if (error instanceof RangeError || error instanceof TypeError || error instanceof URIError) {
+        return response(400, { error: "BAD_REQUEST", message: error.message });
+      }
       return response(500, { error: "INTERNAL_ERROR" });
     }
   }
