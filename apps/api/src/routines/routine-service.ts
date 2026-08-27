@@ -36,6 +36,13 @@ function normalizeTitle(title: string): string {
   return normalized;
 }
 
+function validateCategory(category: RoutineCategory): RoutineCategory {
+  const supported = new Set<RoutineCategory>(["CLEANING", "LAUNDRY", "KITCHEN", "BATHROOM", "ETC"]);
+  if (!supported.has(category)) throw new RangeError("unsupported routine category");
+  return category;
+}
+
+
 function requireIsoDate(value: string, fieldName: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new RangeError(`${fieldName} must be a valid date`);
@@ -70,7 +77,7 @@ export class RoutineService {
       id: this.dependencies.createId(),
       homeId: input.homeId,
       title: normalizeTitle(input.title),
-      category: input.category,
+      category: validateCategory(input.category),
       recurrence: structuredClone(input.recurrence),
       nextDueAt: requireIsoDate(input.firstDueAt, "firstDueAt"),
       isActive: true,
@@ -92,7 +99,7 @@ export class RoutineService {
     const updated: Routine = {
       ...routine,
       ...(input.title !== undefined ? { title: normalizeTitle(input.title) } : {}),
-      ...(input.category !== undefined ? { category: input.category } : {}),
+      ...(input.category !== undefined ? { category: validateCategory(input.category) } : {}),
       ...(input.recurrence !== undefined ? { recurrence: structuredClone(input.recurrence) } : {}),
       ...(input.nextDueAt !== undefined ? { nextDueAt: requireIsoDate(input.nextDueAt, "nextDueAt") } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),

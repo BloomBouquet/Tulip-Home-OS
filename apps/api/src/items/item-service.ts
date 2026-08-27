@@ -40,6 +40,13 @@ function normalizeName(value: string): string {
   return normalized;
 }
 
+function validateCategory(category: HomeItemCategory): HomeItemCategory {
+  const supported = new Set<HomeItemCategory>(["APPLIANCE", "FILTER", "CONSUMABLE", "BATTERY", "ETC"]);
+  if (!supported.has(category)) throw new RangeError("unsupported item category");
+  return category;
+}
+
+
 function normalizeOptionalText(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized || undefined;
@@ -118,7 +125,7 @@ export class HomeItemService {
       id: this.dependencies.createId(),
       homeId: input.homeId,
       name: normalizeName(input.name),
-      category: input.category,
+      category: validateCategory(input.category),
       ...(purchasedAt ? { purchasedAt } : {}),
       ...(warrantyEndsAt ? { warrantyEndsAt } : {}),
       ...(replacementIntervalDays ? { replacementIntervalDays } : {}),
@@ -135,6 +142,10 @@ export class HomeItemService {
   async list(currentUserId: string, homeId: string): Promise<HomeItem[]> {
     await this.assertOwnedHome(homeId, currentUserId);
     return this.dependencies.items.listByHomeId(homeId);
+  }
+
+  async get(currentUserId: string, id: string): Promise<HomeItem> {
+    return structuredClone(await this.getOwnedItem(id, currentUserId));
   }
 
   async update(currentUserId: string, id: string, input: UpdateHomeItemInput): Promise<HomeItem> {
@@ -164,7 +175,7 @@ export class HomeItemService {
     const updated: HomeItem = {
       ...item,
       ...(input.name !== undefined ? { name: normalizeName(input.name) } : {}),
-      ...(input.category !== undefined ? { category: input.category } : {}),
+      ...(input.category !== undefined ? { category: validateCategory(input.category) } : {}),
       ...(purchasedAt ? { purchasedAt } : {}),
       ...(warrantyEndsAt ? { warrantyEndsAt } : {}),
       ...(replacementIntervalDays ? { replacementIntervalDays } : {}),

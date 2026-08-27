@@ -14,6 +14,9 @@ Implemented and verified without external runtime dependencies:
 - Home ownership authorization guard
 - Today frontend view model
 - Next.js Today screen scaffold with overdue, empty, warning, and loading states
+- one-Home onboarding domain service
+- authenticated framework-independent REST router
+- Routine/HomeItem CRUD, Today, complete/undo, and history HTTP routes
 
 ## Verification
 
@@ -23,7 +26,7 @@ Core TypeScript and behavior tests can be verified with globally available Node.
 ```bash
 npm run typecheck:core
 npm run test:core
-# current result: 46 tests, 0 failures
+# current result: 62 tests, 0 failures
 ```
 
 When normal network access is available:

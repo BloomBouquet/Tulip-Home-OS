@@ -111,3 +111,15 @@ test("item intervals must be positive integers", async () => {
     /positive integer/
   );
 });
+
+test("owner can get an item by id while cross-user access stays hidden", async () => {
+  const { service } = await setup();
+  const created = await service.create("user-1", {
+    homeId: home.id,
+    name: "가습기 필터",
+    category: "FILTER"
+  });
+
+  assert.deepEqual(await service.get("user-1", created.id), created);
+  await assert.rejects(() => service.get("user-2", created.id), /Resource not found/);
+});

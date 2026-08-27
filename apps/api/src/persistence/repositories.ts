@@ -2,6 +2,7 @@ import type { Home, HomeItem, Routine, TaskOccurrence } from "../../../../packag
 
 export interface HomeRepository {
   findById(id: string): Promise<Home | null>;
+  findByOwnerId(ownerId: string): Promise<Home | null>;
   save(home: Home): Promise<void>;
 }
 

@@ -9,6 +9,11 @@ function assertPositiveInterval(interval: number): void {
 }
 
 export function validateRecurrenceRule(rule: RecurrenceRule): void {
+  const supportedTypes = new Set(["DAILY", "WEEKLY", "MONTHLY", "INTERVAL_DAYS"]);
+  if (!rule || typeof rule !== "object" || !supportedTypes.has((rule as { type?: string }).type ?? "")) {
+    throw new RangeError("unsupported recurrence type");
+  }
+
   assertPositiveInterval(rule.interval);
 
   if (rule.type === "WEEKLY") {
