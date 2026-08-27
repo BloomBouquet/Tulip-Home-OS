@@ -63,7 +63,8 @@ test("PostgreSQL repositories persist and read the Home OS core flow", async () 
     await assert.rejects(
       () => homes.save({ ...home, id: "integration-home-duplicate", name: "중복 집" }),
       (error: unknown) => {
-        assert.equal((error as { code?: string }).code, "23505");
+        assert.ok(error instanceof RangeError);
+        assert.equal(error.message, "Home already exists for this user");
         return true;
       }
     );
