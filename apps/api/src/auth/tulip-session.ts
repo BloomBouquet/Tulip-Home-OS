@@ -1,9 +1,9 @@
 import type { BouquetIdentity } from "./bouquet-auth-adapter.ts";
 
 export interface TulipSessionStore {
-  create(identity: BouquetIdentity): string;
-  resolve(token: string): BouquetIdentity | null;
-  revoke(token: string): void;
+  create(identity: BouquetIdentity): Promise<string>;
+  resolve(token: string): Promise<BouquetIdentity | null>;
+  revoke(token: string): Promise<void>;
 }
 
 export interface TulipSessionStoreOptions {
@@ -25,7 +25,7 @@ export class InMemoryTulipSessionStore implements TulipSessionStore {
     if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
   }
 
-  create(identity: BouquetIdentity): string {
+  async create(identity: BouquetIdentity): Promise<string> {
     if (!identity.userId.trim()) throw new RangeError("session identity requires userId");
     const token = this.createToken().trim();
     if (!token) throw new RangeError("session token generator returned an empty token");
@@ -36,7 +36,7 @@ export class InMemoryTulipSessionStore implements TulipSessionStore {
     return token;
   }
 
-  resolve(token: string): BouquetIdentity | null {
+  async resolve(token: string): Promise<BouquetIdentity | null> {
     const record = this.records.get(token);
     if (!record) return null;
     if (record.expiresAt <= this.now()) {
@@ -46,7 +46,7 @@ export class InMemoryTulipSessionStore implements TulipSessionStore {
     return structuredClone(record.identity);
   }
 
-  revoke(token: string): void {
+  async revoke(token: string): Promise<void> {
     this.records.delete(token);
   }
 }
