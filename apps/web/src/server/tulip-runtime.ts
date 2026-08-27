@@ -7,7 +7,11 @@ import {
   type BouquetFetch
 } from "../../../api/src/auth/bouquet-oauth.ts";
 import { BouquetSsoController } from "../../../api/src/auth/bouquet-sso-controller.ts";
-import { InMemoryTulipSessionStore, TULIP_SESSION_COOKIE } from "../../../api/src/auth/tulip-session.ts";
+import {
+  InMemoryTulipSessionStore,
+  TULIP_SESSION_COOKIE,
+  type TulipSessionStore
+} from "../../../api/src/auth/tulip-session.ts";
 import { HomeManagementService } from "../../../api/src/home/home-management-service.ts";
 import { TulipApiRouter, type ApiRequest, type ApiResponse } from "../../../api/src/http/tulip-api-router.ts";
 import { HomeItemService } from "../../../api/src/items/item-service.ts";
@@ -52,14 +56,14 @@ function sessionTokenFromCookie(cookieHeader: string | undefined): string | null
 }
 
 class SessionAuthAdapter implements BouquetAuthAdapter {
-  private readonly sessions: InMemoryTulipSessionStore;
+  private readonly sessions: TulipSessionStore;
 
-  constructor(sessions: InMemoryTulipSessionStore) {
+  constructor(sessions: TulipSessionStore) {
     this.sessions = sessions;
   }
 
   async verify(token: string): Promise<BouquetIdentity> {
-    const identity = this.sessions.resolve(token);
+    const identity = await this.sessions.resolve(token);
     if (!identity) throw new BouquetAuthenticationError("Tulip session is invalid or expired");
     return identity;
   }
