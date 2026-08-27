@@ -52,6 +52,13 @@ test("PostgreSQL repositories persist and read the Home OS core flow", async () 
   };
   await homes.save(home);
   assert.deepEqual(await homes.findByOwnerId(home.ownerId), home);
+  await assert.rejects(
+    () => homes.save({ ...home, id: "integration-home-duplicate", name: "중복 집" }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "23505");
+      return true;
+    }
+  );
 
   const routine: Routine = {
     id: "integration-routine",
@@ -137,7 +144,7 @@ test("PostgreSQL repositories persist and read the Home OS core flow", async () 
   assert.equal(current.status, 200);
   assert.equal((current.body as Home).name, "런타임 영속 집");
 
-  await (runtimeA as ReturnType<typeof createTulipWebRuntime> & { close?: () => Promise<void> }).close?.();
-  await (runtimeB as ReturnType<typeof createTulipWebRuntime> & { close?: () => Promise<void> }).close?.();
+  await runtimeA.close();
+  await runtimeB.close();
   await sql.close();
 });
