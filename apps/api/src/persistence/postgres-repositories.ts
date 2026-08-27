@@ -1,5 +1,5 @@
-import type { Home } from "../../../../packages/contracts/src/index.ts";
-import type { HomeRepository } from "./repositories.ts";
+import type { Home, RecurrenceRule, Routine } from "../../../../packages/contracts/src/index.ts";
+import type { HomeRepository, RoutineRepository } from "./repositories.ts";
 
 export interface SqlQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   rows: Row[];
@@ -24,6 +24,18 @@ interface HomeRow extends Record<string, unknown> {
   updated_at: Date | string;
 }
 
+interface RoutineRow extends Record<string, unknown> {
+  id: string;
+  home_id: string;
+  title: string;
+  category: Routine["category"];
+  recurrence: RecurrenceRule | string;
+  next_due_at: Date | string;
+  is_active: boolean;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
 function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -37,6 +49,24 @@ function mapHome(row: HomeRow): Home {
     sido: row.sido,
     sigungu: row.sigungu,
     eupmyeondong: row.eupmyeondong,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at)
+  };
+}
+
+function mapRoutine(row: RoutineRow): Routine {
+  const recurrence = typeof row.recurrence === "string"
+    ? JSON.parse(row.recurrence) as RecurrenceRule
+    : row.recurrence;
+
+  return {
+    id: row.id,
+    homeId: row.home_id,
+    title: row.title,
+    category: row.category,
+    recurrence,
+    nextDueAt: iso(row.next_due_at),
+    isActive: row.is_active,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at)
   };
@@ -103,5 +133,66 @@ export class PostgresHomeRepository implements HomeRepository {
         home.updatedAt
       ]
     );
+  }
+}
+
+export class PostgresRoutineRepository implements RoutineRepository {
+  private readonly sql: SqlExecutor;
+
+  constructor(sql: SqlExecutor) {
+    this.sql = sql;
+  }
+
+  async findById(id: string): Promise<Routine | null> {
+    const result = await this.sql.query<RoutineRow>(
+      `SELECT id, home_id, title, category, recurrence, next_due_at, is_active, created_at, updated_at
+       FROM routines
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    return result.rows[0] ? mapRoutine(result.rows[0]) : null;
+  }
+
+  async listByHomeId(homeId: string): Promise<Routine[]> {
+    const result = await this.sql.query<RoutineRow>(
+      `SELECT id, home_id, title, category, recurrence, next_due_at, is_active, created_at, updated_at
+       FROM routines
+       WHERE home_id = $1
+       ORDER BY next_due_at ASC, id ASC`,
+      [homeId]
+    );
+    return result.rows.map(mapRoutine);
+  }
+
+  async save(routine: Routine): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO routines (
+         id, home_id, title, category, recurrence, next_due_at, is_active, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         home_id = EXCLUDED.home_id,
+         title = EXCLUDED.title,
+         category = EXCLUDED.category,
+         recurrence = EXCLUDED.recurrence,
+         next_due_at = EXCLUDED.next_due_at,
+         is_active = EXCLUDED.is_active,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        routine.id,
+        routine.homeId,
+        routine.title,
+        routine.category,
+        routine.recurrence,
+        routine.nextDueAt,
+        routine.isActive,
+        routine.createdAt,
+        routine.updatedAt
+      ]
+    );
+  }
+
+  async deleteById(id: string): Promise<void> {
+    await this.sql.query("DELETE FROM routines WHERE id = $1", [id]);
   }
 }
