@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "test:core": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:postgres": "node --experimental-strip-types --test integration/postgres.integration.test.ts",
     "typecheck:core": "tsc --noEmit -p tsconfig.core.json",
     "verify:core": "npm run typecheck:core && npm run test:core",
     "typecheck:web:offline": "tsc --noEmit -p tsconfig.web-offline.json",
