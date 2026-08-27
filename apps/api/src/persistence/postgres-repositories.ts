@@ -77,6 +77,12 @@ function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function isHomeOwnerUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const postgresError = error as { code?: unknown; constraint?: unknown };
+  return postgresError.code === "23505" && postgresError.constraint === "homes_owner_id_idx";
+}
+
 function mapHome(row: HomeRow): Home {
   return {
     id: row.id,
@@ -180,30 +186,37 @@ export class PostgresHomeRepository implements HomeRepository {
       [home.ownerId, home.ownerId]
     );
 
-    await this.sql.query(
-      `INSERT INTO homes (
-         id, owner_id, name, region_code, sido, sigungu, eupmyeondong, created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (id) DO UPDATE SET
-         owner_id = EXCLUDED.owner_id,
-         name = EXCLUDED.name,
-         region_code = EXCLUDED.region_code,
-         sido = EXCLUDED.sido,
-         sigungu = EXCLUDED.sigungu,
-         eupmyeondong = EXCLUDED.eupmyeondong,
-         updated_at = EXCLUDED.updated_at`,
-      [
-        home.id,
-        home.ownerId,
-        home.name,
-        home.regionCode,
-        home.sido,
-        home.sigungu,
-        home.eupmyeondong,
-        home.createdAt,
-        home.updatedAt
-      ]
-    );
+    try {
+      await this.sql.query(
+        `INSERT INTO homes (
+           id, owner_id, name, region_code, sido, sigungu, eupmyeondong, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (id) DO UPDATE SET
+           owner_id = EXCLUDED.owner_id,
+           name = EXCLUDED.name,
+           region_code = EXCLUDED.region_code,
+           sido = EXCLUDED.sido,
+           sigungu = EXCLUDED.sigungu,
+           eupmyeondong = EXCLUDED.eupmyeondong,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          home.id,
+          home.ownerId,
+          home.name,
+          home.regionCode,
+          home.sido,
+          home.sigungu,
+          home.eupmyeondong,
+          home.createdAt,
+          home.updatedAt
+        ]
+      );
+    } catch (error) {
+      if (isHomeOwnerUniqueViolation(error)) {
+        throw new RangeError("Home already exists for this user");
+      }
+      throw error;
+    }
   }
 }
 
