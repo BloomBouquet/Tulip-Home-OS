@@ -102,3 +102,15 @@ button { font: inherit; }
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+.authPage, .onboardingPage { min-height: 66vh; display: grid; align-content: center; gap: 18px; }
+.authPage h1, .onboardingHeader h1 { margin: 0; font-size: clamp(34px, 7vw, 54px); letter-spacing: -.045em; line-height: 1.06; }
+.authPage p, .onboardingHeader p { margin: 0; color: #6b7067; line-height: 1.65; max-width: 580px; }
+.securityNote { font-size: 12px; color: #8b9187 !important; }
+.onboardingHeader { display: grid; gap: 10px; }
+.homeForm { display: grid; gap: 14px; margin-top: 8px; }
+.homeForm label { display: grid; gap: 7px; font-size: 13px; font-weight: 800; color: #51574e; }
+.homeForm input { width: 100%; min-height: 52px; border: 1px solid #dfe3da; border-radius: 16px; background: white; padding: 0 15px; font: inherit; color: #20231f; outline: none; }
+.homeForm input:focus { border-color: #89977d; box-shadow: 0 0 0 3px rgba(116,129,104,.12); }
+.homeForm small { font-size: 11px; line-height: 1.5; font-weight: 500; color: #92978f; }
+.formSubmit { width: 100%; margin-top: 6px; }

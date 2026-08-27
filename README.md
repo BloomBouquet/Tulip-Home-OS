@@ -11,9 +11,14 @@ Implemented and verified without external runtime dependencies:
 - waste schedule normalization boundary
 - Today aggregator with partial-failure handling
 - Bouquet authentication adapter boundary
+- Bouquet OAuth2 Authorization Code + PKCE S256 server flow
+- OAuth state browser binding with one-time HttpOnly state cookie
+- Opaque HttpOnly Tulip session (Bouquet access token is server-only)
 - Home ownership authorization guard
 - Today frontend view model
-- Next.js Today screen scaffold with overdue, empty, warning, and loading states
+- Next.js Today screen backed by the authenticated Tulip API proxy
+- Bouquet login/callback/logout server routes
+- first-Home onboarding page with administrative-area-only fields
 - one-Home onboarding domain service
 - authenticated framework-independent REST router
 - Routine/HomeItem CRUD, Today, complete/undo, and history HTTP routes
@@ -26,7 +31,7 @@ Core TypeScript and behavior tests can be verified with globally available Node.
 ```bash
 npm run typecheck:core
 npm run test:core
-# current result: 62 tests, 0 failures
+# current result: 91 tests, 0 failures
 ```
 
 When normal network access is available:
@@ -37,6 +42,25 @@ pnpm install
 pnpm verify
 pnpm --filter @tulip/web dev
 ```
+
+## Bouquet SSO environment contract
+
+Server-side runtime configuration:
+
+```text
+BOUQUET_AUTHORIZATION_URL=https://.../authorize
+BOUQUET_TOKEN_URL=https://.../token
+BOUQUET_USERINFO_URL=https://.../userinfo
+BOUQUET_CLIENT_ID=...
+BOUQUET_REDIRECT_URI=https://<tulip-host>/api/auth/bouquet/callback
+TULIP_POST_LOGIN_URL=/api/auth/post-login
+# optional server-only confidential client setting
+BOUQUET_CLIENT_SECRET=...
+```
+
+Production endpoints must use HTTPS. `http://localhost` and `http://127.0.0.1` are accepted only for local development.
+
+The current web runtime uses in-memory OAuth state, Tulip sessions, and domain repositories so the complete flow can be tested without external packages. Before multi-instance or durable deployment, replace those adapters with shared/durable stores.
 
 ## Repository
 
