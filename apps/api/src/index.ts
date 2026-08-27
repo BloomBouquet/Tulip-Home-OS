@@ -8,6 +8,8 @@ export * from "./items/item-service.ts";
 export * from "./occurrences/occurrence-service.ts";
 export * from "./persistence/in-memory-repositories.ts";
 export * from "./persistence/repositories.ts";
+export * from "./persistence/postgres-repositories.ts";
+export * from "./persistence/pg-executor.ts";
 export * from "./routines/routine-service.ts";
 export * from "./today/repository-today-source.ts";
 export * from "./home/home-management-service.ts";
