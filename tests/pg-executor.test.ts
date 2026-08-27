@@ -35,6 +35,17 @@ test("PgPoolExecutor forwards parameterized queries and closes its pool", async 
   assert.equal(pool.ended, true);
 });
 
-test("createPgPoolExecutor resolves DATABASE_URL at call time and rejects missing values", () => {
+test("createPgPoolExecutor rejects an explicitly empty database URL", () => {
   assert.throws(() => createPgPoolExecutor(""), /DATABASE_URL is required/);
+});
+
+test("explicit undefined does not fall back to process DATABASE_URL", () => {
+  const previous = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = "postgres://process-env-should-not-win/example";
+  try {
+    assert.throws(() => createPgPoolExecutor(undefined), /DATABASE_URL is required/);
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+  }
 });
