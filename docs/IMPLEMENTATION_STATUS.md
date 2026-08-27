@@ -5,6 +5,10 @@
 - Repository baseline prepared for `main` at `BloomBouquet/Tulip-Home-OS`
 - Shared contracts
 - Bouquet auth adapter boundary
+- Bouquet OAuth2 Authorization Code + PKCE S256 primitives and token/userinfo client
+- OAuth `state` one-time server record + HttpOnly browser state-cookie binding
+- Opaque HttpOnly Tulip session with no Bouquet access token persisted in the browser session
+- Server SSO login/callback/logout routes and post-login Home routing
 - Home ownership guard
 - Recurrence engine with validation
 - Waste normalization/provider boundary
@@ -20,7 +24,8 @@
 - Asia/Seoul Today date handling
 - Today aggregator
 - Today view model
-- Next.js Today UI scaffold with overdue, empty, warning, and loading states
+- Next.js Today UI backed by authenticated same-origin Tulip API proxy
+- Login and first-Home onboarding pages
 - One-Home onboarding service with administrative-area-only data
 - Bouquet bearer-authenticated HTTP router
 - Home / Routine / HomeItem / Today / occurrence / history REST routes
@@ -32,7 +37,7 @@
 
 - `npm run verify:core`
   - TypeScript core typecheck: PASS
-  - Node core behavior tests: **62 passing, 0 failing**
+  - Node core behavior tests: **91 passing, 0 failing**
 - `npm run typecheck:web:offline`: PASS
 - `git diff --check`: PASS
 
@@ -77,7 +82,31 @@ PostgreSQL adapter (next)
 ## Next engineering milestone
 
 1. Add a real PostgreSQL repository adapter once the DB driver can be installed.
-2. Implement the production Bouquet auth adapter contract.
-3. Replace Today preview data and connect Home onboarding UI through the authenticated Tulip API client.
-4. Add the normalized public waste-data importer job.
+2. Replace in-memory OAuth state/Tulip session stores with a shared production store before multi-instance deployment.
+3. Confirm the deployed Bouquet provider endpoint/claim contract and configure the SSO environment values.
+4. Add the normalized public waste-data importer job and region-code picker dataset.
 5. Add CI and deployment after package installation is available.
+
+
+## Bouquet SSO milestone architecture
+
+```text
+Browser
+  ↓ /api/auth/bouquet/login
+PKCE S256 + one-time state
+  ↓
+Bouquet Authorization Server
+  ↓ code + state
+/api/auth/bouquet/callback
+  ├─ state cookie === callback state
+  ├─ consume one-time server state
+  ├─ server-side /token exchange
+  ├─ server-side /userinfo
+  └─ opaque HttpOnly Tulip session
+       ↓
+/api/tulip/v1/* proxy
+       ↓
+TulipApiRouter + Home ownership guard
+```
+
+Bouquet access tokens are used only for the server-side `/userinfo` request and are not written to localStorage, sessionStorage, rendered HTML, or the Tulip session record. The current in-memory runtime is intentionally a development adapter; it is not the final multi-instance persistence/session implementation.

@@ -1,0 +1,127 @@
+import type { BouquetAuthAdapter, BouquetIdentity } from "../../../api/src/auth/bouquet-auth-adapter.ts";
+import { BouquetAuthenticationError } from "../../../api/src/auth/bouquet-auth-adapter.ts";
+import {
+  BouquetOAuthClient,
+  InMemoryTransientAuthStore,
+  loadBouquetOAuthConfig,
+  type BouquetFetch
+} from "../../../api/src/auth/bouquet-oauth.ts";
+import { BouquetSsoController } from "../../../api/src/auth/bouquet-sso-controller.ts";
+import { InMemoryTulipSessionStore, TULIP_SESSION_COOKIE } from "../../../api/src/auth/tulip-session.ts";
+import { HomeManagementService } from "../../../api/src/home/home-management-service.ts";
+import { TulipApiRouter, type ApiRequest, type ApiResponse } from "../../../api/src/http/tulip-api-router.ts";
+import { HomeItemService } from "../../../api/src/items/item-service.ts";
+import { OccurrenceService } from "../../../api/src/occurrences/occurrence-service.ts";
+import {
+  InMemoryHomeItemRepository,
+  InMemoryHomeRepository,
+  InMemoryRoutineRepository,
+  InMemoryTaskOccurrenceRepository
+} from "../../../api/src/persistence/in-memory-repositories.ts";
+import { RoutineService } from "../../../api/src/routines/routine-service.ts";
+import { RepositoryTodaySource } from "../../../api/src/today/repository-today-source.ts";
+import type { WasteScheduleProvider } from "../../../api/src/waste/waste-provider.ts";
+
+function sessionTokenFromCookie(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const [name, ...valueParts] = part.trim().split("=");
+    if (name !== TULIP_SESSION_COOKIE) continue;
+    const value = valueParts.join("=");
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+class SessionAuthAdapter implements BouquetAuthAdapter {
+  private readonly sessions: InMemoryTulipSessionStore;
+
+  constructor(sessions: InMemoryTulipSessionStore) {
+    this.sessions = sessions;
+  }
+
+  async verify(token: string): Promise<BouquetIdentity> {
+    const identity = this.sessions.resolve(token);
+    if (!identity) throw new BouquetAuthenticationError("Tulip session is invalid or expired");
+    return identity;
+  }
+}
+
+const emptyWasteProvider: WasteScheduleProvider = {
+  async getByRegionAndDate() {
+    return [];
+  }
+};
+
+export interface TulipWebRuntime {
+  sso: BouquetSsoController;
+  handleApi(request: ApiRequest, cookieHeader?: string): Promise<ApiResponse>;
+}
+
+export function createTulipWebRuntime(
+  env: Record<string, string | undefined>,
+  fetcher: BouquetFetch = fetch
+): TulipWebRuntime {
+  const config = loadBouquetOAuthConfig(env);
+  const sessions = new InMemoryTulipSessionStore();
+  const transient = new InMemoryTransientAuthStore();
+  const oauth = new BouquetOAuthClient(config, fetcher);
+  const sso = new BouquetSsoController({ config, oauth, transient, sessions });
+
+  const homes = new InMemoryHomeRepository();
+  const routines = new InMemoryRoutineRepository();
+  const items = new InMemoryHomeItemRepository();
+  const occurrences = new InMemoryTaskOccurrenceRepository();
+  const now = () => new Date();
+  const createId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
+
+  const homeService = new HomeManagementService({ homes, now, createId: () => createId("home") });
+  const routineService = new RoutineService({ homes, routines, now, createId: () => createId("routine") });
+  const itemService = new HomeItemService({ homes, items, now, createId: () => createId("item") });
+  const occurrenceService = new OccurrenceService({ homes, routines, items, occurrences, now });
+  const todaySource = new RepositoryTodaySource({ routines, items, occurrences, waste: emptyWasteProvider });
+  const api = new TulipApiRouter({
+    auth: new SessionAuthAdapter(sessions),
+    homes: homeService,
+    routines: routineService,
+    items: itemService,
+    occurrences: occurrenceService,
+    todaySource
+  });
+
+  return {
+    sso,
+    async handleApi(request, cookieHeader) {
+      const sessionToken = sessionTokenFromCookie(cookieHeader);
+      return api.handle({
+        ...request,
+        headers: {
+          ...(request.headers ?? {}),
+          ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {})
+        }
+      });
+    }
+  };
+}
+
+type RuntimeGlobal = typeof globalThis & { __tulipWebRuntime?: TulipWebRuntime };
+
+function processEnvironment(): Record<string, string | undefined> {
+  const processLike = (globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  }).process;
+  return processLike?.env ?? {};
+}
+
+export function getTulipWebRuntime(): TulipWebRuntime {
+  const runtimeGlobal = globalThis as RuntimeGlobal;
+  if (!runtimeGlobal.__tulipWebRuntime) {
+    runtimeGlobal.__tulipWebRuntime = createTulipWebRuntime(processEnvironment());
+  }
+  return runtimeGlobal.__tulipWebRuntime;
+}
