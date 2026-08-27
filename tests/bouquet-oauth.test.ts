@@ -41,17 +41,17 @@ test("buildAuthorizationUrl includes code challenge, state, and redirect contrac
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
 });
 
-test("transient auth state is one-time and expires", () => {
+test("transient auth state is one-time and expires", async () => {
   let now = 1_000;
   const store = new InMemoryTransientAuthStore({ now: () => now, ttlMs: 100 });
-  store.save("state-1", { codeVerifier: "verifier", returnTo: "/today" });
+  await store.save("state-1", { codeVerifier: "verifier", returnTo: "/today" });
 
-  assert.deepEqual(store.consume("state-1"), { codeVerifier: "verifier", returnTo: "/today" });
-  assert.equal(store.consume("state-1"), null);
+  assert.deepEqual(await store.consume("state-1"), { codeVerifier: "verifier", returnTo: "/today" });
+  assert.equal(await store.consume("state-1"), null);
 
-  store.save("state-2", { codeVerifier: "other", returnTo: "/today" });
+  await store.save("state-2", { codeVerifier: "other", returnTo: "/today" });
   now = 1_101;
-  assert.equal(store.consume("state-2"), null);
+  assert.equal(await store.consume("state-2"), null);
 });
 
 test("OAuth config rejects unsafe localhost schemes and protocol-relative post-login targets", () => {
