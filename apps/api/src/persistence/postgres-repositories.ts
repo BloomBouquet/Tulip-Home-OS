@@ -1,5 +1,16 @@
-import type { Home, HomeItem, RecurrenceRule, Routine } from "../../../../packages/contracts/src/index.ts";
-import type { HomeItemRepository, HomeRepository, RoutineRepository } from "./repositories.ts";
+import type {
+  Home,
+  HomeItem,
+  RecurrenceRule,
+  Routine,
+  TaskOccurrence
+} from "../../../../packages/contracts/src/index.ts";
+import type {
+  HomeItemRepository,
+  HomeRepository,
+  RoutineRepository,
+  TaskOccurrenceRepository
+} from "./repositories.ts";
 
 export interface SqlQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   rows: Row[];
@@ -49,6 +60,17 @@ interface HomeItemRow extends Record<string, unknown> {
   note: string | null;
   created_at: Date | string;
   updated_at: Date | string;
+}
+
+interface TaskOccurrenceRow extends Record<string, unknown> {
+  id: string;
+  home_id: string;
+  source_type: TaskOccurrence["sourceType"];
+  source_id: string;
+  title: string;
+  due_at: Date | string;
+  status: TaskOccurrence["status"];
+  completed_at: Date | string | null;
 }
 
 function iso(value: Date | string): string {
@@ -105,6 +127,19 @@ function mapHomeItem(row: HomeItemRow): HomeItem {
     ...(row.note !== null ? { note: row.note } : {}),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at)
+  };
+}
+
+function mapTaskOccurrence(row: TaskOccurrenceRow): TaskOccurrence {
+  return {
+    id: row.id,
+    homeId: row.home_id,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    title: row.title,
+    dueAt: iso(row.due_at),
+    status: row.status,
+    ...(row.completed_at !== null ? { completedAt: iso(row.completed_at) } : {})
   };
 }
 
@@ -303,5 +338,75 @@ export class PostgresHomeItemRepository implements HomeItemRepository {
 
   async deleteById(id: string): Promise<void> {
     await this.sql.query("DELETE FROM home_items WHERE id = $1", [id]);
+  }
+}
+
+export class PostgresTaskOccurrenceRepository implements TaskOccurrenceRepository {
+  private readonly sql: SqlExecutor;
+
+  constructor(sql: SqlExecutor) {
+    this.sql = sql;
+  }
+
+  async findById(id: string): Promise<TaskOccurrence | null> {
+    const result = await this.sql.query<TaskOccurrenceRow>(
+      `SELECT id, home_id, source_type, source_id, title, due_at, status, completed_at
+       FROM task_occurrences
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    return result.rows[0] ? mapTaskOccurrence(result.rows[0]) : null;
+  }
+
+  async listByHomeId(homeId: string): Promise<TaskOccurrence[]> {
+    const result = await this.sql.query<TaskOccurrenceRow>(
+      `SELECT id, home_id, source_type, source_id, title, due_at, status, completed_at
+       FROM task_occurrences
+       WHERE home_id = $1
+       ORDER BY due_at ASC, id ASC`,
+      [homeId]
+    );
+    return result.rows.map(mapTaskOccurrence);
+  }
+
+  async listCompletedByHomeId(homeId: string, limit: number): Promise<TaskOccurrence[]> {
+    const result = await this.sql.query<TaskOccurrenceRow>(
+      `SELECT id, home_id, source_type, source_id, title, due_at, status, completed_at
+       FROM task_occurrences
+       WHERE home_id = $1
+         AND status = 'DONE'
+         AND completed_at IS NOT NULL
+       ORDER BY completed_at DESC, id ASC
+       LIMIT $2`,
+      [homeId, limit]
+    );
+    return result.rows.map(mapTaskOccurrence);
+  }
+
+  async save(occurrence: TaskOccurrence): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO task_occurrences (
+         id, home_id, source_type, source_id, title, due_at, status, completed_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (id) DO UPDATE SET
+         home_id = EXCLUDED.home_id,
+         source_type = EXCLUDED.source_type,
+         source_id = EXCLUDED.source_id,
+         title = EXCLUDED.title,
+         due_at = EXCLUDED.due_at,
+         status = EXCLUDED.status,
+         completed_at = EXCLUDED.completed_at`,
+      [
+        occurrence.id,
+        occurrence.homeId,
+        occurrence.sourceType,
+        occurrence.sourceId,
+        occurrence.title,
+        occurrence.dueAt,
+        occurrence.status,
+        occurrence.completedAt ?? null
+      ]
+    );
   }
 }
