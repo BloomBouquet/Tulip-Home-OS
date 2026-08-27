@@ -17,7 +17,7 @@ CREATE TABLE homes (
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX homes_owner_id_idx ON homes(owner_id);
+CREATE UNIQUE INDEX homes_owner_id_idx ON homes(owner_id);
 CREATE INDEX homes_region_code_idx ON homes(region_code);
 
 CREATE TABLE routines (
