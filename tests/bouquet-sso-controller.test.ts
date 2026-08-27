@@ -27,6 +27,10 @@ function oauth(overrides: Partial<BouquetOAuthOperations> = {}): BouquetOAuthOpe
   };
 }
 
+function delay(ms = 10): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 test("start stores PKCE verifier and returns Bouquet authorization redirect", async () => {
   const transient = new InMemoryTransientAuthStore();
   const controller = new BouquetSsoController({
@@ -109,4 +113,63 @@ test("logout revokes cookie session and returns a clearing cookie", async () => 
   assert.equal(response.status, 204);
   assert.match(response.cookies?.[0] ?? "", /Max-Age=0/);
   assert.equal(sessions.resolve("opaque-session"), null);
+});
+
+test("controller awaits asynchronous auth stores across start, callback, and logout", async () => {
+  let saved = false;
+  let consumed = false;
+  let created = false;
+  let revoked = false;
+
+  const transient = {
+    async save() {
+      await delay();
+      saved = true;
+    },
+    async consume() {
+      await delay();
+      consumed = true;
+      return { codeVerifier: "async-verifier", returnTo: "/today" };
+    }
+  };
+  const sessions = {
+    async create() {
+      await delay();
+      created = true;
+      return "async-session";
+    },
+    async resolve() {
+      return null;
+    },
+    async revoke() {
+      await delay();
+      revoked = true;
+    }
+  };
+  const controller = new BouquetSsoController({
+    config,
+    oauth: oauth(),
+    transient: transient as any,
+    sessions: sessions as any,
+    createState: () => "async-state",
+    createPkce: async () => ({ verifier: "v".repeat(43), challenge: "async-challenge" })
+  });
+
+  const started = await controller.start("/today");
+  assert.equal(started.status, 302);
+  assert.equal(saved, true);
+
+  const callback = await controller.callback({
+    code: "async-code",
+    state: "async-state",
+    cookieHeader: "tulip_oauth_state=async-state"
+  });
+  assert.equal(callback.status, 302);
+  assert.equal(consumed, true);
+  assert.equal(created, true);
+  assert.match(callback.cookies?.find((cookie) => cookie.startsWith("tulip_session=")) ?? "", /^tulip_session=async-session;/);
+
+  const logout = await controller.logout("tulip_session=async-session");
+  assert.equal(logout.status, 204);
+  assert.equal(revoked, true);
 });
