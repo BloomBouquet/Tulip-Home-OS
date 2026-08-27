@@ -24,6 +24,22 @@ class RecordingSqlExecutor implements SqlExecutor {
   }
 }
 
+class HomeOwnerConflictSqlExecutor extends RecordingSqlExecutor {
+  override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    params: readonly unknown[] = []
+  ): Promise<SqlQueryResult<Row>> {
+    if (/INSERT INTO homes/i.test(text)) {
+      this.calls.push({ text, params });
+      throw Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+        constraint: "homes_owner_id_idx"
+      });
+    }
+    return super.query<Row>(text, params);
+  }
+}
+
 const home: Home = {
   id: "home-1",
   ownerId: "bouquet-user-1",
@@ -74,6 +90,19 @@ test("PostgresHomeRepository provisions canonical Bouquet user before upserting 
     home.updatedAt
   ]);
   assert.equal(sql.calls.some((call) => call.text.includes(home.name)), false);
+});
+
+test("PostgresHomeRepository maps owner uniqueness conflicts to domain validation", async () => {
+  const repository = new PostgresHomeRepository(new HomeOwnerConflictSqlExecutor());
+
+  await assert.rejects(
+    () => repository.save(home),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError);
+      assert.equal(error.message, "Home already exists for this user");
+      return true;
+    }
+  );
 });
 
 test("PostgresHomeRepository maps PostgreSQL rows to Home contracts", async () => {
