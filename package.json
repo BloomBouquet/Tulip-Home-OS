@@ -1,0 +1,16 @@
+{
+  "name": "tulip-home-os",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "test:core": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck:core": "tsc --noEmit -p tsconfig.core.json",
+    "verify:core": "npm run typecheck:core && npm run test:core",
+    "typecheck:web:offline": "tsc --noEmit -p tsconfig.web-offline.json",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "pnpm --filter @tulip/api build && pnpm --filter @tulip/web exec tsc --noEmit -p tsconfig.json",
+    "build": "pnpm -r build",
+    "verify": "pnpm typecheck && pnpm test && pnpm build"
+  }
+}

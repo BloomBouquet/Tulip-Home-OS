@@ -7,28 +7,24 @@ Team Tulip's Personal Home OS MVP foundation, built with the Luna Agent System w
 Implemented and verified without external runtime dependencies:
 
 - shared Home OS contracts
-- recurrence engine and scheduling validation
+- recurrence engine
 - waste schedule normalization boundary
+- Today aggregator with partial-failure handling
 - Bouquet authentication adapter boundary
 - Home ownership authorization guard
-- PostgreSQL-ready schema contract
-- in-memory persistence repositories
-- Routine / HomeItem CRUD services
-- TaskOccurrence completion / undo / history
-- repository-backed Today aggregation
-- home-isolated occurrence IDs
-- Next.js Today screen scaffold
+- Today frontend view model
+- Next.js Today screen scaffold with overdue, empty, warning, and loading states
 
 ## Verification
 
-The sandbox cannot reach the npm registry, so package installation and the full Next.js build cannot be run here. Core behavior and offline TypeScript checks are available:
+The sandbox cannot reach the npm registry, so the Next.js dependency installation/build cannot be run here.
+Core TypeScript and behavior tests can be verified with globally available Node.js and TypeScript:
 
 ```bash
-npm run verify:core
-npm run typecheck:web:offline
+npm run typecheck:core
+npm run test:core
+# current result: 46 tests, 0 failures
 ```
-
-Current verified result: 46 core tests passing, 0 failing.
 
 When normal network access is available:
 
@@ -38,6 +34,12 @@ pnpm install
 pnpm verify
 pnpm --filter @tulip/web dev
 ```
+
+## Repository
+
+`https://github.com/BloomBouquet/Tulip-Home-OS`
+
+The baseline is published from `main`; feature work continues on isolated `team-tulip/*` branches.
 
 ## Product constraints
 

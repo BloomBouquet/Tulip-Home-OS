@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "packages/contracts/src/**/*.ts",
+    "packages/domain/src/**/*.ts",
+    "apps/api/src/**/*.ts",
+    "apps/web/src/lib/**/*.ts"
+  ]
+}
