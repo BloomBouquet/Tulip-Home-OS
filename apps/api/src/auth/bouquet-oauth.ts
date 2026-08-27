@@ -101,8 +101,8 @@ export interface TransientAuthRecord {
 }
 
 export interface TransientAuthStore {
-  save(state: string, record: TransientAuthRecord): void;
-  consume(state: string): TransientAuthRecord | null;
+  save(state: string, record: TransientAuthRecord): Promise<void>;
+  consume(state: string): Promise<TransientAuthRecord | null>;
 }
 
 export class InMemoryTransientAuthStore implements TransientAuthStore {
@@ -116,7 +116,7 @@ export class InMemoryTransientAuthStore implements TransientAuthStore {
     if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
   }
 
-  save(state: string, record: TransientAuthRecord): void {
+  async save(state: string, record: TransientAuthRecord): Promise<void> {
     const normalizedState = state.trim();
     if (!normalizedState) throw new RangeError("state is required");
     this.records.set(normalizedState, {
@@ -125,7 +125,7 @@ export class InMemoryTransientAuthStore implements TransientAuthStore {
     });
   }
 
-  consume(state: string): TransientAuthRecord | null {
+  async consume(state: string): Promise<TransientAuthRecord | null> {
     const record = this.records.get(state);
     if (!record) return null;
     this.records.delete(state);
