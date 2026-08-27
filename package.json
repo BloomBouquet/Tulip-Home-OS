@@ -12,5 +12,8 @@
     "typecheck": "pnpm --filter @tulip/api build && pnpm --filter @tulip/web exec tsc --noEmit -p tsconfig.json",
     "build": "pnpm -r build",
     "verify": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
   }
 }
