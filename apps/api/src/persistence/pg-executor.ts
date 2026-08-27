@@ -29,10 +29,11 @@ export class PgPoolExecutor implements SqlExecutor {
   }
 }
 
-export function createPgPoolExecutor(
-  databaseUrl: string | undefined = process.env.DATABASE_URL
-): PgPoolExecutor {
-  const connectionString = databaseUrl?.trim();
+export function createPgPoolExecutor(): PgPoolExecutor;
+export function createPgPoolExecutor(databaseUrl: string | undefined): PgPoolExecutor;
+export function createPgPoolExecutor(databaseUrl?: string): PgPoolExecutor {
+  const configuredUrl = arguments.length === 0 ? process.env.DATABASE_URL : databaseUrl;
+  const connectionString = configuredUrl?.trim();
   if (!connectionString) throw new RangeError("DATABASE_URL is required");
 
   const pool = new Pool({ connectionString });
