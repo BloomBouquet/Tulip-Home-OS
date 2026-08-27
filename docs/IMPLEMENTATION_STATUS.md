@@ -21,12 +21,16 @@
 - Today aggregator
 - Today view model
 - Next.js Today UI scaffold with overdue, empty, warning, and loading states
+- One-Home onboarding service with administrative-area-only data
+- Bouquet bearer-authenticated HTTP router
+- Home / Routine / HomeItem / Today / occurrence / history REST routes
+- Strict YYYY-MM-DD calendar validation at the HTTP boundary
 
 ## Verified in this environment
 
 - `npm run verify:core`
   - TypeScript core typecheck: PASS
-  - Node core behavior tests: **46 passing, 0 failing**
+  - Node core behavior tests: **58 passing, 0 failing**
 - `npm run typecheck:web:offline`: PASS
 - `git diff --check`: PASS
 
@@ -71,8 +75,7 @@ PostgreSQL adapter (next)
 ## Next engineering milestone
 
 1. Add a real PostgreSQL repository adapter once the DB driver can be installed.
-2. Add framework HTTP handlers for Routine/HomeItem CRUD, occurrence complete/undo, history, and Today.
-3. Replace Today preview data in the web app with API data.
-4. Add Home onboarding and administrative-area selection.
-5. Add the normalized public waste-data importer job.
-6. Add CI and deployment after package installation is available.
+2. Implement the production Bouquet auth adapter contract.
+3. Replace Today preview data and connect Home onboarding UI through the authenticated Tulip API client.
+4. Add the normalized public waste-data importer job.
+5. Add CI and deployment after package installation is available.

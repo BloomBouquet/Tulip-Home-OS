@@ -137,6 +137,10 @@ export class HomeItemService {
     return this.dependencies.items.listByHomeId(homeId);
   }
 
+  async get(currentUserId: string, id: string): Promise<HomeItem> {
+    return structuredClone(await this.getOwnedItem(id, currentUserId));
+  }
+
   async update(currentUserId: string, id: string, input: UpdateHomeItemInput): Promise<HomeItem> {
     const item = await this.getOwnedItem(id, currentUserId);
     const purchasedAt = input.purchasedAt !== undefined

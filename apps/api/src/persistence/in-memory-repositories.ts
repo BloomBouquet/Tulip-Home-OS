@@ -18,6 +18,11 @@ export class InMemoryHomeRepository implements HomeRepository {
     return record ? clone(record) : null;
   }
 
+  async findByOwnerId(ownerId: string): Promise<Home | null> {
+    const record = [...this.records.values()].find((candidate) => candidate.ownerId === ownerId);
+    return record ? clone(record) : null;
+  }
+
   async save(home: Home): Promise<void> {
     this.records.set(home.id, clone(home));
   }

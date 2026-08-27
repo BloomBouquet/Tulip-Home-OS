@@ -10,3 +10,5 @@ export * from "./persistence/in-memory-repositories.ts";
 export * from "./persistence/repositories.ts";
 export * from "./routines/routine-service.ts";
 export * from "./today/repository-today-source.ts";
+export * from "./home/home-management-service.ts";
+export * from "./http/tulip-api-router.ts";
