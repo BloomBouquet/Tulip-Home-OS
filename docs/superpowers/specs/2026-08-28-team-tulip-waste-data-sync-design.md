@@ -14,9 +14,20 @@ Source: 행정안전부_행정표준코드_법정동코드 (`data.go.kr` dataset
 
 - REST API, JSON/XML.
 - Canonical key: 10-character `region_cd`.
-- Relevant fields: `region_cd`, `sido_cd`, `sgg_cd`, `umd_cd`, `locatadd_nm`, `locathigh_cd`, `locallow_nm`, `adpt_de`.
+- Relevant fields: `region_cd`, `sido_cd`, `sgg_cd`, `umd_cd`, `ri_cd`, `locatadd_nm`, `locathigh_cd`, `locallow_nm`, `adpt_de`.
 - The importer treats the legal-dong code as the canonical Tulip region identifier.
 - UI terminology is `읍·면·동`; Tulip does not claim these are 행정동 codes.
+- 리-level rows (`ri_cd != "00"`) are excluded from the MVP selector.
+
+Region level is derived deterministically from the official code components:
+
+```text
+SIDO          sgg_cd == "000" && umd_cd == "000" && ri_cd == "00"
+SIGUNGU       sgg_cd != "000" && umd_cd == "000" && ri_cd == "00"
+EUPMYEONDONG  umd_cd != "000" && ri_cd == "00"
+```
+
+Rows outside these shapes are rejected from the selector catalog rather than guessed.
 
 ### Waste schedules
 
@@ -90,13 +101,15 @@ Only active 시도/시군구/읍면동 rows are returned by onboarding APIs.
 Keep the existing domain columns and add:
 
 ```text
-source_row_key TEXT
+source_row_key TEXT UNIQUE
 source_scope_name TEXT
 synced_at TIMESTAMPTZ
 active BOOLEAN NOT NULL DEFAULT TRUE
 ```
 
-Add a uniqueness constraint suitable for stable source-row upserts. Existing schedule IDs remain deterministic Tulip IDs and must not include user/Home information.
+For imported rows, `source_row_key` is the lowercase SHA-256 hex digest of a canonical serialization of the official source row fields used by Tulip: provider/source identifier, source management-area text, waste category, weekdays, start/end time, place, method, and source update value. It contains no secret/user data.
+
+Imported schedule IDs are `waste:<source_row_key>`. This avoids collisions between two official rows that share region/type/weekdays but differ by time/place/method. Existing non-imported schedule rows can retain their historical IDs.
 
 ## Region-resolution rules
 
@@ -104,7 +117,7 @@ Tulip stores Home region codes as canonical 10-digit legal-dong codes.
 
 Waste source rows may apply at different geographic scopes. The importer resolves them conservatively:
 
-1. Exact 읍·면·동 match when the source management area unambiguously maps to one legal-dong catalog row.
+1. Exact 읍·면·동 match when the source management area unambiguously maps to one active legal-dong catalog row.
 2. Otherwise resolve to the unambiguous 시군구 scope and store the first five digits of the legal-dong code as the schedule scope key.
 3. Ambiguous management-area rows are recorded as unresolved import results and are not exposed to Today.
 4. No fuzzy guess is accepted solely to increase coverage.
@@ -116,7 +129,7 @@ Provider lookup for Home `2920011400` uses both:
 29200       # containing 시군구
 ```
 
-Exact-locality and containing-district schedules can both apply. Duplicate normalized schedules are deduplicated by schedule identity.
+Exact-locality and containing-district schedules can both apply. Duplicate normalized schedules are deduplicated by imported schedule identity.
 
 ## Import behavior
 
@@ -124,21 +137,21 @@ Both importers are idempotent.
 
 ### Region sync
 
-- Fetch pages from the official API.
-- Normalize and validate region-code structure.
+- Fetch every page from the official API before publication.
+- Normalize and validate region-code structure using the deterministic level rules above.
 - Upsert all valid rows.
 - Mark rows absent from a successfully completed full snapshot as inactive.
 - Never deactivate old rows when a fetch terminates partially or fails.
 
 ### Waste sync
 
-- Fetch public API pages into a staging collection for one sync run.
+- Fetch every public API page into a staging collection for one sync run.
 - Validate source response shape before changing active production rows.
 - Normalize using the existing waste normalization boundary, expanded only where necessary for official source fields.
 - Resolve region scope against `region_catalog`.
-- Upsert resolved rows.
-- Persist unresolved-row counts and reasons in a sync result; do not publish unresolved rows.
-- Mark stale schedules inactive only after a successful complete run.
+- Compute `source_row_key`, then upsert resolved rows.
+- Return unresolved-row counts and structured reasons in `WasteSyncResult`; unresolved rows are not published to `waste_schedules`.
+- Mark stale imported schedules inactive only after a successful complete run.
 - Preserve the last successful dataset if the public API is unavailable.
 
 No destructive `TRUNCATE`-then-reload flow is allowed.
@@ -162,19 +175,19 @@ MOIS_REGION_API_BASE_URL=...
 MOIS_WASTE_API_BASE_URL=...
 ```
 
-Default production endpoint values may be defined in server configuration, but credentials must never be sent to the browser.
+Source endpoint values remain configuration, because public-provider hosts/contracts can change independently of Tulip releases. Credentials must never be sent to the browser.
 
 ## Region API for onboarding
 
-Add authenticated or public-read-only Tulip API endpoints for the selector. These expose only public administrative-area data and no user data.
+Region selector endpoints use the normal Tulip session authentication because onboarding already begins after Bouquet login. They expose public region catalog data only.
 
 ```text
 GET /v1/regions/sido
-GET /v1/regions/sigungu?sido=<name-or-code>
-GET /v1/regions/localities?sigungu=<region-code>
+GET /v1/regions/sigungu?parentCode=<10-digit-SIDO-code>
+GET /v1/regions/localities?parentCode=<10-digit-SIGUNGU-code>
 ```
 
-Prefer code-based parent selection after the first selector step to avoid name ambiguity.
+Responses contain `regionCode`, `name`, `level`, and the display hierarchy required by the next selector step. Parent selection is code-based; names are display data only.
 
 Home creation continues to send:
 
@@ -186,7 +199,7 @@ sigungu
 eupmyeondong
 ```
 
-The server verifies that the selected active `regionCode` exists and matches the submitted display hierarchy before persisting Home data.
+The server verifies that the selected active `regionCode` exists at `EUPMYEONDONG` level and that its catalog `sido/sigungu/locality` exactly matches the submitted display hierarchy before persisting Home data.
 
 ## Web onboarding
 
@@ -216,9 +229,9 @@ Implement `PostgresWasteScheduleProvider` against `waste_schedules`.
 
 - validates a 10-digit Home region code;
 - computes exact locality plus containing 5-digit district scope;
-- returns only active schedules whose weekday includes the Asia/Seoul weekday;
+- returns only `active = TRUE` schedules whose weekday array contains the Asia/Seoul weekday;
 - maps PostgreSQL rows back into `WasteSchedule` contracts;
-- deterministic ordering;
+- orders deterministically by `waste_type`, `start_time NULLS LAST`, then `id`;
 - returns an empty array when no schedule exists rather than failing Today.
 
 Database errors still propagate so the existing Today partial-failure warning path remains effective.
@@ -253,11 +266,11 @@ Waste source failure remains partial: Routine and HomeItem Today items are still
 
 ## Data provenance and user trust
 
-Tulip should retain and expose at least:
+Tulip retains:
 
-- source update timestamp;
-- Tulip synchronization timestamp;
-- source scope/management-area description where useful.
+- source update timestamp in the domain schedule;
+- Tulip synchronization timestamp in persistence metadata;
+- source scope/management-area description when available.
 
 The UI may show a concise source/last-updated note in the waste detail area. It must not imply Tulip independently guarantees municipal collection when the official source is stale or incomplete.
 
@@ -273,15 +286,17 @@ The UI may show a concise source/last-updated note in the waste detail area. It 
 - Region sync failure: keep the previous catalog active; do not partially deactivate.
 - Waste sync failure: keep the previous successful schedules active.
 - Individual malformed rows: reject and count with a structured reason; continue the run if the source snapshot itself is complete.
-- Excessive unresolved/malformed rate: fail the publication phase and retain the old dataset.
+- Publication safety threshold: if more than 20% of fetched waste rows are malformed or unresolved, fail publication and retain the previous active dataset. The result still reports counts/reasons for investigation.
 - Provider/database failure during Today: existing Today warning path handles partial failure.
 
 ## Testing strategy
 
 ### Unit tests
 
-- official region response parsing and hierarchy normalization;
+- official region response parsing, level derivation, and hierarchy normalization;
+- exclusion of 리-level/unsupported region rows;
 - waste-source parsing and normalization;
+- stable source-row hashing;
 - conservative region resolution;
 - exact + district provider lookup;
 - weekday matching in Asia/Seoul;
