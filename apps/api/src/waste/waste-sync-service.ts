@@ -118,16 +118,22 @@ export async function resolveWasteRegion(
   const district = districts[0];
   const localities = await regions.listChildren(district.regionCode, "EUPMYEONDONG");
   const tokens = scopeTokens(candidate.sourceScopeName);
-  const exact = localities.filter((entry) => entry.locality && tokens.has(entry.locality));
-  if (exact.length === 1) {
-    return { regionCode: exact[0].regionCode, sourceScopeName: candidate.sourceScopeName };
+  const matchedLocalities = localities.filter((locality) => locality.locality && tokens.has(locality.locality));
+  if (matchedLocalities.length === 1) {
+    return {
+      regionCode: matchedLocalities[0].regionCode,
+      sourceScopeName: candidate.sourceScopeName
+    };
   }
-  if (exact.length > 1) return null;
-  return { regionCode: district.regionCode.slice(0, 5), sourceScopeName: candidate.sourceScopeName };
+  if (matchedLocalities.length > 1) return null;
+  return {
+    regionCode: district.regionCode.slice(0, 5),
+    sourceScopeName: candidate.sourceScopeName
+  };
 }
 
 export async function createWasteSourceRowKey(candidate: WasteSourceCandidate): Promise<string> {
-  const canonical = JSON.stringify([
+  return hashOpaqueSecret(JSON.stringify([
     candidate.sido ?? "",
     candidate.sigungu,
     candidate.sourceScopeName,
@@ -136,9 +142,9 @@ export async function createWasteSourceRowKey(candidate: WasteSourceCandidate): 
     candidate.startTime ?? "",
     candidate.endTime ?? "",
     candidate.placeDescription ?? "",
-    candidate.methodDescription ?? ""
-  ]);
-  return hashOpaqueSecret(canonical);
+    candidate.methodDescription ?? "",
+    candidate.sourceUpdatedAt
+  ]));
 }
 
 export interface WasteSyncClient {
@@ -175,6 +181,10 @@ export async function syncWasteSchedules(
   dependencies: WasteSyncDependencies
 ): Promise<WasteSyncResult> {
   const sourceRows = await dependencies.client.fetchAll();
+  if (sourceRows.length === 0) {
+    throw new Error("MOIS household-waste snapshot is empty");
+  }
+
   const now = (dependencies.now ?? (() => new Date()))();
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new RangeError("now() must return a valid date");
   const maxRejectedRatio = dependencies.maxRejectedRatio ?? 0.2;
@@ -232,7 +242,7 @@ export async function syncWasteSchedules(
     }
   }
 
-  const rejectedRatio = (malformed + unresolved) / Math.max(1, sourceRows.length);
+  const rejectedRatio = (malformed + unresolved) / sourceRows.length;
   if (rejectedRatio > maxRejectedRatio) {
     return {
       fetched: sourceRows.length,
