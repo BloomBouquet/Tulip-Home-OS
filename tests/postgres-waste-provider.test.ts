@@ -5,7 +5,11 @@ import type { SqlExecutor, SqlQueryResult } from "../apps/api/src/persistence/po
 
 class RecordingSql implements SqlExecutor {
   readonly calls: Array<{ text: string; params: readonly unknown[] }> = [];
-  constructor(private readonly rows: Record<string, unknown>[] = []) {}
+  private readonly rows: Record<string, unknown>[];
+
+  constructor(rows: Record<string, unknown>[] = []) {
+    this.rows = rows;
+  }
 
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
