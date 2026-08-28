@@ -21,6 +21,10 @@ export async function syncRegionCatalog(
   dependencies: RegionSyncDependencies
 ): Promise<RegionSyncResult> {
   const rows = await dependencies.client.fetchAll();
+  if (rows.length === 0) {
+    throw new Error("MOIS region snapshot is empty");
+  }
+
   const syncedAt = (dependencies.now ?? (() => new Date()))();
   if (!(syncedAt instanceof Date) || Number.isNaN(syncedAt.getTime())) {
     throw new RangeError("now() must return a valid date");
@@ -38,7 +42,7 @@ export async function syncRegionCatalog(
     }
   }
 
-  if (rows.length > 0 && entries.length === 0) {
+  if (entries.length === 0) {
     throw new Error("MOIS region snapshot contains no publishable rows");
   }
 
