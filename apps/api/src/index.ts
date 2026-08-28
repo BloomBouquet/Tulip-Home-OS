@@ -21,3 +21,5 @@ export * from "./auth/opaque-secret-hash.ts";
 export * from "./auth/postgres-auth-stores.ts";
 export * from "./regions/region-catalog.ts";
 export * from "./regions/postgres-region-catalog.ts";
+export * from "./regions/mois-region-client.ts";
+export * from "./regions/region-sync-service.ts";
