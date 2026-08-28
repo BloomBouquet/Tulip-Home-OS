@@ -17,3 +17,5 @@ export * from "./http/tulip-api-router.ts";
 export * from "./auth/bouquet-oauth.ts";
 export * from "./auth/tulip-session.ts";
 export * from "./auth/bouquet-sso-controller.ts";
+export * from "./auth/opaque-secret-hash.ts";
+export * from "./auth/postgres-auth-stores.ts";

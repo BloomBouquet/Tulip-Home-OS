@@ -85,7 +85,7 @@ export class BouquetSsoController {
     if (!state) throw new RangeError("OAuth state generator returned an empty value");
     const pkce = await (this.dependencies.createPkce ?? (() => createPkcePair()))();
     const target = localReturnTo(returnTo, this.dependencies.config.postLoginUrl);
-    this.dependencies.transient.save(state, { codeVerifier: pkce.verifier, returnTo: target });
+    await this.dependencies.transient.save(state, { codeVerifier: pkce.verifier, returnTo: target });
     const secure = cookieSecure(this.dependencies.config);
 
     return {
@@ -113,14 +113,14 @@ export class BouquetSsoController {
       return { status: 400, headers: {}, cookies: [buildOauthStateClearCookie(secure)], body: { error: "INVALID_OAUTH_STATE" } };
     }
 
-    const transient = this.dependencies.transient.consume(state);
+    const transient = await this.dependencies.transient.consume(state);
     if (!transient) {
       return { status: 400, headers: {}, cookies: [buildOauthStateClearCookie(secure)], body: { error: "INVALID_OAUTH_STATE" } };
     }
 
     const token = await this.dependencies.oauth.exchangeCode(code, transient.codeVerifier);
     const identity = await this.dependencies.oauth.fetchIdentity(token.accessToken);
-    const sessionToken = this.dependencies.sessions.create(identity);
+    const sessionToken = await this.dependencies.sessions.create(identity);
 
     return {
       status: 302,
@@ -136,7 +136,7 @@ export class BouquetSsoController {
 
   async logout(cookieHeader?: string): Promise<SsoControllerResponse> {
     const sessionToken = cookieValue(cookieHeader, TULIP_SESSION_COOKIE);
-    if (sessionToken) this.dependencies.sessions.revoke(sessionToken);
+    if (sessionToken) await this.dependencies.sessions.revoke(sessionToken);
     const secure = cookieSecure(this.dependencies.config);
     return {
       status: 204,

@@ -13,29 +13,27 @@ import { createTulipWebRuntime } from "../apps/web/src/server/tulip-runtime.ts";
 
 const migrationUrls = [
   new URL("../apps/api/db/migrations/001_initial.sql", import.meta.url),
-  new URL("../apps/api/db/migrations/002_unique_home_owner.sql", import.meta.url)
+  new URL("../apps/api/db/migrations/002_unique_home_owner.sql", import.meta.url),
+  new URL("../apps/api/db/migrations/003_persistent_auth_state.sql", import.meta.url)
 ];
 
-async function createRuntimeSession(
-  runtime: ReturnType<typeof createTulipWebRuntime>,
-  userId: string
-): Promise<string> {
-  const started = await runtime.sso.start("/api/auth/post-login");
-  const state = new URL(started.headers.Location).searchParams.get("state")!;
-  const oauthCookie = started.cookies?.[0];
-  const callback = await runtime.sso.callback({ code: userId, state, cookieHeader: oauthCookie });
-  const cookie = callback.cookies?.find((value) => value.startsWith("tulip_session="));
-  assert.ok(cookie, "Tulip session cookie should be created");
-  return cookie;
+function cookieValue(cookie: string | undefined, name: string): string | null {
+  if (!cookie) return null;
+  const [pair] = cookie.split(";");
+  const [rawName, ...rawValue] = pair.split("=");
+  if (rawName !== name || rawValue.length === 0) return null;
+  return decodeURIComponent(rawValue.join("="));
 }
 
-test("PostgreSQL repositories persist and read the Home OS core flow", async () => {
+test("PostgreSQL repositories persist Home OS data and authentication across runtimes", async () => {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   assert.ok(databaseUrl, "DATABASE_URL is required for PostgreSQL integration tests");
 
   const sql = createPgPoolExecutor(databaseUrl);
   let runtimeA: ReturnType<typeof createTulipWebRuntime> | undefined;
   let runtimeB: ReturnType<typeof createTulipWebRuntime> | undefined;
+  let runtimeC: ReturnType<typeof createTulipWebRuntime> | undefined;
+  let runtimeD: ReturnType<typeof createTulipWebRuntime> | undefined;
 
   try {
     for (const migrationUrl of migrationUrls) {
@@ -133,8 +131,58 @@ test("PostgreSQL repositories persist and read the Home OS core flow", async () 
     };
 
     runtimeA = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
-    const runtimeACookie = await createRuntimeSession(runtimeA, "runtime-a");
-    const created = await runtimeA.handleApi({
+    const started = await runtimeA.sso.start("/api/auth/post-login");
+    assert.equal(started.status, 302);
+    const state = new URL(started.headers.Location).searchParams.get("state");
+    assert.ok(state);
+    const stateCookie = started.cookies?.find((value) => value.startsWith("tulip_oauth_state="));
+    assert.ok(stateCookie);
+
+    const persistedStates = await sql.query<{ state_hash: string }>(
+      "SELECT state_hash FROM oauth_transient_states"
+    );
+    assert.equal(persistedStates.rows.length, 1);
+    assert.match(persistedStates.rows[0].state_hash, /^[0-9a-f]{64}$/);
+    assert.notEqual(persistedStates.rows[0].state_hash, state);
+
+    runtimeB = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
+    const callback = await runtimeB.sso.callback({
+      code: "runtime-login",
+      state,
+      cookieHeader: stateCookie
+    });
+    assert.equal(callback.status, 302);
+    const sessionCookie = callback.cookies?.find((value) => value.startsWith("tulip_session="));
+    assert.ok(sessionCookie);
+    const rawSessionToken = cookieValue(sessionCookie, "tulip_session");
+    assert.ok(rawSessionToken);
+
+    const remainingStates = await sql.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM oauth_transient_states"
+    );
+    assert.equal(remainingStates.rows[0].count, "0");
+
+    const persistedSessions = await sql.query<{ token_hash: string }>(
+      "SELECT token_hash FROM tulip_sessions WHERE user_id = $1",
+      ["runtime-bouquet-user"]
+    );
+    assert.equal(persistedSessions.rows.length, 1);
+    assert.match(persistedSessions.rows[0].token_hash, /^[0-9a-f]{64}$/);
+    assert.notEqual(persistedSessions.rows[0].token_hash, rawSessionToken);
+
+    const replay = await runtimeB.sso.callback({
+      code: "runtime-login",
+      state,
+      cookieHeader: stateCookie
+    });
+    assert.equal(replay.status, 400);
+
+    runtimeC = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
+    const me = await runtimeC.handleApi({ method: "GET", path: "/v1/me" }, sessionCookie);
+    assert.equal(me.status, 200);
+    assert.deepEqual(me.body, { userId: "runtime-bouquet-user", displayName: "Runtime User" });
+
+    const created = await runtimeC.handleApi({
       method: "POST",
       path: "/v1/homes",
       body: {
@@ -144,18 +192,24 @@ test("PostgreSQL repositories persist and read the Home OS core flow", async () 
         sigungu: "광산구",
         eupmyeondong: "수완동"
       }
-    }, runtimeACookie);
+    }, sessionCookie);
     assert.equal(created.status, 201);
 
-    runtimeB = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
-    const runtimeBCookie = await createRuntimeSession(runtimeB, "runtime-b");
-    const current = await runtimeB.handleApi({ method: "GET", path: "/v1/homes/current" }, runtimeBCookie);
+    runtimeD = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
+    const current = await runtimeD.handleApi({ method: "GET", path: "/v1/homes/current" }, sessionCookie);
     assert.equal(current.status, 200);
     assert.equal((current.body as Home).name, "런타임 영속 집");
+
+    const logout = await runtimeD.sso.logout(sessionCookie);
+    assert.equal(logout.status, 204);
+    const rejected = await runtimeC.handleApi({ method: "GET", path: "/v1/me" }, sessionCookie);
+    assert.equal(rejected.status, 401);
   } finally {
     await Promise.allSettled([
       runtimeA?.close() ?? Promise.resolve(),
-      runtimeB?.close() ?? Promise.resolve()
+      runtimeB?.close() ?? Promise.resolve(),
+      runtimeC?.close() ?? Promise.resolve(),
+      runtimeD?.close() ?? Promise.resolve()
     ]);
     await sql.close();
   }
