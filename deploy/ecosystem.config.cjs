@@ -1,4 +1,4 @@
-const host = process.env.TULIP_BIND_HOST || "127.0.0.1";
+const host = "127.0.0.1";
 const port = process.env.TULIP_PORT || "3100";
 
 module.exports = {
