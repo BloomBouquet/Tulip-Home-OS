@@ -51,4 +51,4 @@ jobs:
             -o ConnectTimeout=10 \
             -o IdentitiesOnly=yes \
             "${TULIP_SSH_USER}@${TULIP_SSH_HOST}" \
-            "/srv/tulip-home-os/scripts/server/refresh-official-data.sh"
+            "bash /srv/tulip-home-os/scripts/server/refresh-official-data.sh"
