@@ -2,155 +2,115 @@
 
 ## Completed
 
-- Repository baseline published to `main` at `BloomBouquet/Tulip-Home-OS`
-- Shared Home OS contracts
-- Bouquet auth adapter boundary
-- Bouquet OAuth2 Authorization Code + PKCE S256 primitives and token/userinfo client
-- OAuth `state` HttpOnly browser-cookie binding and one-time server consumption
-- Opaque HttpOnly Tulip session with no Bouquet access token persisted in the browser session
-- PostgreSQL-backed OAuth transient state shared across application instances
-- PostgreSQL-backed Tulip sessions shared across application instances
-- SHA-256 lookup hashing for raw OAuth state and raw Tulip session tokens
-- Atomic `DELETE ... RETURNING` OAuth state consumption
-- Cross-instance session logout/revocation
-- Server SSO login/callback/logout routes and post-login Home routing
-- Home ownership guard
-- Recurrence engine with validation
+- Shared Home OS contracts, recurrence engine, Home/Routine/HomeItem/TaskOccurrence services
+- Bouquet OAuth2 Authorization Code + PKCE S256 and opaque HttpOnly Tulip sessions
+- PostgreSQL-backed cross-instance domain and authentication persistence
 - Versioned PostgreSQL migrations `001 -> 002 -> 003 -> 004`
-- Repository interfaces and explicit in-memory persistence adapters for tests/local development
-- PostgreSQL repositories for Home, Routine, HomeItem, and TaskOccurrence
-- Authorized Routine CRUD service
-- Authorized HomeItem CRUD service
-- TaskOccurrence completion / undo / history service
-- Routine completion advances the next due date exactly once
-- HomeItem completion advances by the shortest configured maintenance interval
-- Repository-backed Today source
-- Home-isolated deterministic occurrence IDs
-- Asia/Seoul Today date handling
-- Today aggregator and view model
-- Next.js Today UI backed by authenticated same-origin Tulip API proxy
-- Login and first-Home onboarding pages
-- One-Home onboarding service with administrative-area-only data
-- Bouquet-authenticated HTTP router
-- Home / Routine / HomeItem / Today / occurrence / history REST routes
-- Strict YYYY-MM-DD calendar validation at the HTTP boundary
-- Runtime category / recurrence discriminant validation for untrusted HTTP JSON
-- Malformed percent-encoded resource paths return 400 instead of 500
-- Official legal-dong MOIS API client and snapshot normalizer
-- PostgreSQL active region catalog with deterministic hierarchy readers
-- Authenticated Region selector routes for 시·도 / 시·군·구 / 읍·면·동
-- Home creation validation against the active canonical locality hierarchy
-- Web onboarding changed from free-text administrative areas to chained official region selectors
-- Household-waste MOIS API client and category expansion for general / food / recycling schedules
-- Region resolution that prefers exact locality and falls back to district scope
-- Waste import rejection threshold for malformed/unresolved source rows
-- PostgreSQL waste snapshot publication with stale imported-row deactivation
-- Empty upstream region/waste snapshot rejection before publication, preserving the previous active snapshot
-- PostgreSQL Today waste provider using exact locality plus five-digit district scope
-- Production PostgreSQL runtime wiring for official region and waste providers
-- Official-data sync runner that refreshes regions before waste and always closes persistence
-- `npm run sync:official-data` operational CLI with server-only `DATA_GO_KR_API_KEY`
-- GitHub Actions CI with PostgreSQL 17 integration and Next.js production build
+- PostgreSQL-backed official legal-dong region catalog
+- Authenticated 시·도 → 시·군·구 → 읍·면·동 selector and canonical Home region validation
+- Guarded household-waste API import, normalization, resolution, and snapshot publication
+- Empty/low-quality upstream protection that preserves the previous active snapshot
+- PostgreSQL Today waste provider using exact locality plus district scope in Asia/Seoul
+- `npm run sync:official-data` server-side sync runner
+- GitHub Actions official-data schedule changed to an SSH-only trigger boundary
+- Server-local `scripts/server/refresh-official-data.sh` with external env ownership and non-overlapping `flock`
+- PM2 production baseline for one loopback-only Next.js `tulip-home-os` process
+- Unauthenticated minimal `/api/health` liveness route with `Cache-Control: no-store`
+- `scripts/server/deploy.sh` with tracked-tree validation, target verification before reload, local health verification, and previous-SHA rollback
+- Daily data refresh isolated from code deployment and database migrations
+- PostgreSQL 17 integration verification and Next.js production build in GitHub Actions
 
 ## Current verification
 
-Latest verified feature-head GitHub Actions gate verifies:
+Latest verified production-code head GitHub Actions gate verifies:
 
 - Core TypeScript typecheck
-- **136 core behavior tests passing, 0 failures**
+- **143 core behavior tests passing, 0 failures**
 - PostgreSQL 17 end-to-end integration test passing
-- Migrations `001 -> 002 -> 003 -> 004` applied in order
-- Cross-instance OAuth state persistence and one-time consumption
-- Cross-instance Tulip session resolution and global logout revocation
-- Raw state/session values absent from persisted lookup keys
-- Region snapshot publication and authenticated selector hierarchy
-- Home rejection when display hierarchy does not match the canonical locality code
-- Waste snapshot idempotency and stale imported-row deactivation
-- Empty region/waste upstream responses rejected before snapshot publication
-- Today loading both district- and locality-scoped waste schedules
-- Official-data sync configuration, ordering, rejected-publication failure, and guaranteed persistence cleanup
+- Migrations `001 -> 002 -> 003 -> 004` in integration order
+- Cross-instance authentication/session behavior
+- Official region snapshot + authenticated selector hierarchy
+- Home canonical region validation
+- Waste snapshot publication, stale-row handling, empty-snapshot rejection, and quality threshold
+- Today district/locality waste loading
+- SSH-only official-data refresh workflow contract
+- Server-local refresh isolation from migration/deploy operations
+- Minimal health route contract
+- PM2 loopback/no-secret contract
+- Deploy verify/reload/rollback contract
 - Offline web TypeScript verification
 - Full workspace verification
 - Next.js production build
 
-## Persistence architecture
+## Production operations architecture
 
 ```text
-Bouquet OAuth / Tulip session
-      ↓
-Auth store interfaces
- ├─ TransientAuthStore
- └─ TulipSessionStore
-      ↓
-PostgreSQL auth stores
- ├─ oauth_transient_states
- └─ tulip_sessions
-
-Official public data
- ├─ legal-dong region API
- └─ household-waste API
-      ↓
-normalizers + guarded full-snapshot publication
-      ↓
-PostgreSQL public-data stores
- ├─ region_catalog
- └─ waste_schedules
-      ↓
-shared PgPoolExecutor per runtime
-      ↑
-Domain repositories / API services
- ├─ HomeRepository
- ├─ RoutineRepository
- ├─ HomeItemRepository
- └─ TaskOccurrenceRepository
+GitHub Actions
+  workflow_dispatch / 03:10 KST schedule
+        |
+        | pinned-host-key SSH only
+        v
+Tulip application server
+  /srv/tulip-home-os
+  /etc/tulip-home-os/tulip.env (0600)
+  .runtime/locks (0700)
+        |
+        +--> refresh-official-data.sh --> npm run sync:official-data
+        |
+        +--> deploy.sh --> verify --> PM2 reload --> /api/health
+                                      | failure
+                                      v
+                                previous SHA rollback
+        |
+        v
+PostgreSQL 17 on localhost/private networking
 ```
 
-`TULIP_PERSISTENCE_MODE=memory` remains an explicit local/test mode. In that mode both domain data and authentication state are process-local by design, and the production public-data catalog/provider is not attached.
+The GitHub refresh workflow does not receive `DATABASE_URL`, `DATA_GO_KR_API_KEY`, Bouquet credentials, or public-data source URLs. GitHub stores only the SSH trigger inputs and schedule-enable flag.
 
 ## Security and data-integrity properties
 
-- PKCE S256 remains enabled.
-- Browser state cookie must match callback state before server-side state consumption.
-- PostgreSQL stores SHA-256 hashes instead of raw OAuth state/session token lookup values.
-- OAuth state consumption is atomic across instances.
-- OAuth transient state expires after five minutes.
-- Tulip sessions expire after seven days.
-- Bouquet access tokens are not written to Tulip session storage.
-- Session cookies remain HttpOnly, Secure in HTTPS environments, and SameSite=Lax.
-- PostgreSQL queries use parameterized values.
-- Database failures remain server failures rather than being treated as invalid user credentials.
-- `DATA_GO_KR_API_KEY` is a server-only sync credential and is not exposed through the browser API.
-- Home onboarding stores no GPS coordinates, exact address, or apartment unit.
-- Home region data must match an active canonical 읍·면·동 entry before persistence in PostgreSQL mode.
-- Waste import does not replace the active snapshot when malformed/unresolved source quality exceeds the configured threshold.
-- Zero-row region or household-waste upstream responses fail before publication, so the previous active snapshot remains available.
-- Region refresh runs before waste refresh so waste matching uses the newest successfully published region catalog.
+- PostgreSQL does not need to be exposed to GitHub-hosted runners for official-data refresh.
+- SSH host verification uses pinned `known_hosts`; runtime `ssh-keyscan` is forbidden.
+- GitHub SSH execution uses non-interactive strict host checking and a bounded connection timeout.
+- Production DB/API/OAuth credentials remain in the server-owned environment file.
+- Daily refresh cannot overlap another refresh and does not fetch code, install dependencies, build, restart PM2, or migrate the database.
+- Deployment cannot overlap another deployment, rejects tracked local changes, and verifies the target commit before reload.
+- Failed post-reload liveness causes an explicit checkout/build/reload of `PREVIOUS_SHA` and exits unsuccessfully.
+- `/api/health` is liveness-only and exposes no DB, OAuth, filesystem, session, or environment metadata.
+- Migration execution remains an explicit operator action using `psql -v ON_ERROR_STOP=1`.
+- Raw OAuth state/session tokens are not persisted as lookup keys; SHA-256 hashes are used.
+- Bouquet access tokens are not persisted in Tulip sessions.
+- Home onboarding stores no GPS, exact address, or apartment unit.
+- Public-data empty/quality failures do not replace the previous active snapshot.
 
 ## Deployment notes
 
-Apply migrations before starting the corresponding application version:
+Default server layout:
 
-1. `001_initial.sql`
-2. `002_unique_home_owner.sql`
-3. `003_persistent_auth_state.sql`
-4. `004_waste_data_sync.sql`
+1. `/srv/tulip-home-os`
+2. `/etc/tulip-home-os/tulip.env`
+3. `/srv/tulip-home-os/.runtime/locks`
 
-Configure these server-only/public-data runtime values before executing the first official-data refresh:
+Recommended production sequence:
 
-- `DATABASE_URL`
-- `DATA_GO_KR_API_KEY`
-- `TULIP_REGION_API_URL`
-- `TULIP_WASTE_API_URL`
-- optional `TULIP_WASTE_MAX_REJECTED_RATIO` (`0..1`, default `0.2`)
+1. Keep PostgreSQL on localhost/private networking.
+2. Create the server environment file with mode `0600`.
+3. Clone the repository into `/srv/tulip-home-os`.
+4. Apply required migrations explicitly in numeric order with `psql -v ON_ERROR_STOP=1`.
+5. Run `bash scripts/server/deploy.sh`.
+6. Verify `http://127.0.0.1:3100/api/health` locally.
+7. Configure GitHub SSH host/port/user/private-key/pinned-known-hosts inputs.
+8. Manually dispatch official-data refresh once.
+9. Verify region/waste publication and Today behavior.
+10. Enable `TULIP_PUBLIC_DATA_SYNC_ENABLED=true` only after that manual run succeeds.
 
-Run `npm run sync:official-data` only after migration `004` is applied. A rejected or unexpectedly empty source snapshot exits unsuccessfully and leaves the previously active imported snapshot in place.
-
-Existing sessions created by the older process-local in-memory implementation cannot be migrated and may require users to sign in again during rollout.
+The repository currently has no committed `pnpm-lock.yaml`. Server deployment therefore uses non-frozen installation without persisting an untracked lockfile; adding a committed lockfile remains a separate dependency-hardening milestone.
 
 ## Next engineering milestone
 
-1. Configure the deployed Bouquet provider endpoints/claims and production secrets.
-2. Apply migration `004`, configure the approved public-data source URLs/key, and run the initial official snapshot refresh against the deployment database.
-3. Add deployment health/readiness checks and an explicit migration execution strategy.
-4. Add a scheduled public-data refresh job after production database connectivity and secrets are available.
-5. Add session-management UI/rotation only if product requirements call for it.
+1. Provision or identify the actual Tulip production host and private PostgreSQL instance.
+2. Configure server-owned production environment values and Bouquet production endpoints.
+3. Apply migration `004` if the target database is currently at `003`.
+4. Perform the first real PM2 deploy, local health verification, and manual official-data refresh.
+5. Enable scheduled refresh only after successful production verification.

@@ -17,31 +17,38 @@ jobs:
   refresh:
     if: github.event_name == 'workflow_dispatch' || vars.TULIP_PUBLIC_DATA_SYNC_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
-      DATABASE_URL: ${{ secrets.TULIP_DATABASE_URL }}
-      DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
-      TULIP_REGION_API_URL: ${{ vars.TULIP_REGION_API_URL }}
-      TULIP_WASTE_API_URL: ${{ vars.TULIP_WASTE_API_URL }}
-      TULIP_WASTE_MAX_REJECTED_RATIO: ${{ vars.TULIP_WASTE_MAX_REJECTED_RATIO || '0.2' }}
+      TULIP_SSH_HOST: ${{ vars.TULIP_SSH_HOST }}
+      TULIP_SSH_PORT: ${{ vars.TULIP_SSH_PORT }}
+      TULIP_SSH_USER: ${{ vars.TULIP_SSH_USER }}
+      TULIP_SSH_PRIVATE_KEY: ${{ secrets.TULIP_SSH_PRIVATE_KEY }}
+      TULIP_SSH_KNOWN_HOSTS: ${{ secrets.TULIP_SSH_KNOWN_HOSTS }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable pnpm
+      - name: Trigger server-local refresh
+        shell: bash
         run: |
-          corepack enable
-          corepack prepare pnpm@10.15.0 --activate
-          pnpm --version
+          set -Eeuo pipefail
+          : "${TULIP_SSH_HOST:?TULIP_SSH_HOST is required}"
+          : "${TULIP_SSH_PORT:?TULIP_SSH_PORT is required}"
+          : "${TULIP_SSH_USER:?TULIP_SSH_USER is required}"
+          : "${TULIP_SSH_PRIVATE_KEY:?TULIP_SSH_PRIVATE_KEY is required}"
+          : "${TULIP_SSH_KNOWN_HOSTS:?TULIP_SSH_KNOWN_HOSTS is required}"
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$TULIP_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_tulip"
+          chmod 600 "$HOME/.ssh/id_tulip"
+          printf '%s\n' "$TULIP_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Refresh official public data
-        run: npm run sync:official-data
+          ssh \
+            -i "$HOME/.ssh/id_tulip" \
+            -p "$TULIP_SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=10 \
+            -o IdentitiesOnly=yes \
+            "${TULIP_SSH_USER}@${TULIP_SSH_HOST}" \
+            "bash /srv/tulip-home-os/scripts/server/refresh-official-data.sh"
