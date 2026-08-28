@@ -1,30 +1,28 @@
 # Team Tulip Server-Local Operations Design
 
 Date: 2026-08-28
-Status: Approved in chat; repository review pending
+Status: Implemented on feature branch; final-head verification pending
 
-## 1. Goal
+## Goal
 
-Move Tulip's official public-data refresh away from direct PostgreSQL access from GitHub-hosted runners. GitHub Actions will only trigger an SSH command on the Tulip application server. The application server will hold the production database URL and data.go.kr API key and will execute the existing `npm run sync:official-data` command locally.
+Move official public-data refresh away from direct PostgreSQL access from GitHub-hosted runners. GitHub Actions only triggers a command over SSH; the Tulip application server owns the production database/API credentials and executes the existing sync runner locally.
 
-This milestone also establishes a minimal, auditable production runtime for the Next.js application with PM2 and a liveness health endpoint.
+This milestone also establishes a minimal PM2 runtime, an unauthenticated liveness route, and a rollback-capable operator deployment script.
 
-## 2. Security boundary
+## Security boundary
 
-Production PostgreSQL must not be exposed to GitHub-hosted runners or the public Internet for this workflow.
+Production PostgreSQL must remain on localhost/private networking and must not be exposed merely for GitHub-hosted Actions.
 
-Server-only values:
+Server-only values live in `/etc/tulip-home-os/tulip.env` with restrictive permissions:
 
 - `DATABASE_URL`
 - `DATA_GO_KR_API_KEY`
 - `TULIP_REGION_API_URL`
 - `TULIP_WASTE_API_URL`
 - `TULIP_WASTE_MAX_REJECTED_RATIO`
-- Bouquet production OAuth secrets/configuration
+- Bouquet production OAuth configuration/secrets
 
-These values live in a server-owned environment file outside the repository, defaulting to `/etc/tulip-home-os/tulip.env`, readable only by the Tulip service account. They are never copied into GitHub Actions secrets as part of this design.
-
-GitHub Actions may contain only SSH trigger material:
+GitHub Actions may contain only:
 
 - Variable `TULIP_SSH_HOST`
 - Variable `TULIP_SSH_PORT`
@@ -33,117 +31,75 @@ GitHub Actions may contain only SSH trigger material:
 - Secret `TULIP_SSH_KNOWN_HOSTS`
 - Variable `TULIP_PUBLIC_DATA_SYNC_ENABLED`
 
-`TULIP_SSH_KNOWN_HOSTS` pins the server host key. The workflow must not trust a fresh `ssh-keyscan` result at execution time.
+The workflow uses pinned known-hosts data, `BatchMode=yes`, `StrictHostKeyChecking=yes`, `IdentitiesOnly=yes`, and a bounded connection timeout. Runtime `ssh-keyscan` is not allowed.
 
-The SSH key should be dedicated to Tulip automation and restricted on the server to the minimum account/command permissions required for Tulip operations.
-
-## 3. Runtime layout
-
-Default documented layout:
+## Runtime layout
 
 ```text
-/srv/tulip-home-os/                 # git checkout / application files
-/srv/tulip-home-os/.runtime/locks/  # service-account-owned locks, mode 0700
+/srv/tulip-home-os/                 # deployed repository
+/srv/tulip-home-os/.runtime/locks/  # service-account locks, mode 0700
 /etc/tulip-home-os/tulip.env        # server-only environment, mode 0600
 ```
 
-The paths are configurable through server-local environment variables where useful, but the public repository must not hard-code an infrastructure hostname, IP address, database credential, or API key.
+Only the Next.js web process is a long-running public application process in this milestone. `apps/api` is consumed by the web runtime.
 
-Only the Next.js web process is required as a long-running application process. `apps/api` is consumed by the web server runtime and is not deployed as a second public daemon in this milestone.
+## Official-data refresh
 
-## 4. Official-data refresh flow
+`.github/workflows/refresh-official-data.yml` retains `workflow_dispatch`, the daily 03:10 Asia/Seoul schedule (`10 18 * * *` UTC), the schedule-enable guard, read-only repository permissions, and concurrency protection.
 
-### 4.1 GitHub Actions
+It no longer receives DB/API/source credentials and does not install dependencies. It validates the SSH inputs, writes the dedicated key and pinned known-hosts content into `~/.ssh`, and invokes:
 
-`.github/workflows/refresh-official-data.yml` retains:
+```bash
+bash /srv/tulip-home-os/scripts/server/refresh-official-data.sh
+```
 
-- `workflow_dispatch` for an operator-triggered refresh
-- daily schedule at 03:10 Asia/Seoul (`10 18 * * *` UTC)
-- scheduled execution gated by `TULIP_PUBLIC_DATA_SYNC_ENABLED == 'true'`
-- `contents: read` permissions
-- concurrency protection
+over one strict non-interactive SSH session.
 
-The workflow no longer installs Node dependencies and no longer receives `DATABASE_URL`, `DATA_GO_KR_API_KEY`, or public-data source URLs.
+`scripts/server/refresh-official-data.sh`:
 
-Instead it:
+1. uses `set -Eeuo pipefail`;
+2. creates `.runtime/locks` with mode `0700`;
+3. acquires a non-blocking `flock`;
+4. loads `/etc/tulip-home-os/tulip.env` without printing values;
+5. validates `DATABASE_URL`, `DATA_GO_KR_API_KEY`, `TULIP_REGION_API_URL`, and `TULIP_WASTE_API_URL`;
+6. changes to the deployed repository;
+7. runs `npm run sync:official-data` and propagates failure.
 
-1. creates `~/.ssh`;
-2. writes the dedicated private key with mode `0600`;
-3. writes the pinned known-hosts content;
-4. validates host/port/user variables are non-empty;
-5. opens one non-interactive SSH session;
-6. executes `/srv/tulip-home-os/scripts/server/refresh-official-data.sh`.
+Daily refresh does not fetch code, install dependencies, build, restart PM2, or apply migrations.
 
-SSH uses `BatchMode=yes`, `StrictHostKeyChecking=yes`, and a bounded connection timeout. Failure of SSH or the remote command fails the workflow.
+## PM2 runtime and deployment
 
-### 4.2 Server-local refresh script
+`deploy/ecosystem.config.cjs` runs one process named `tulip-home-os`, defaults to `127.0.0.1:3100`, uses the existing `@tulip/web` start command, enables restart-on-crash/timestamps, and embeds no DB/API/OAuth credentials.
 
-Add `scripts/server/refresh-official-data.sh`.
+`scripts/server/deploy.sh` is an explicit operator action. It:
 
-The script:
-
-1. enables strict shell behavior (`set -Eeuo pipefail`);
-2. ensures `.runtime/locks` exists with mode `0700`;
-3. acquires a non-blocking `flock` lock so two refreshes cannot overlap;
-4. changes to the deployed repository directory;
-5. loads `/etc/tulip-home-os/tulip.env` without printing secret values;
-6. validates required server-only variables are present;
-7. runs `npm run sync:official-data`;
-8. propagates the command's exit status.
-
-The script does not run `git pull`, install dependencies, build the application, restart PM2, or apply database migrations. Daily data refresh must be isolated from application deployment and schema changes.
-
-The existing sync runner remains responsible for:
-
-- refreshing regions before waste schedules;
-- rejecting empty upstream snapshots;
-- rejecting a waste publication above the configured unresolved/malformed threshold;
-- preserving the previous active snapshot on publication failure.
-
-## 5. Application deployment baseline
-
-Add `deploy/ecosystem.config.cjs` and `scripts/server/deploy.sh`.
-
-### 5.1 PM2 configuration
-
-PM2 runs the Next.js application from the repository root using the existing `@tulip/web` start command. The service binds to loopback only, defaulting to `127.0.0.1:3100`, so a reverse proxy remains the public ingress.
-
-Baseline process policy:
-
-- one named process: `tulip-home-os`
-- automatic restart on crash
-- production environment
-- timestamps in PM2 logs
-- no database or OAuth secrets embedded in the committed PM2 file
-
-The process inherits server-side environment variables from `deploy.sh`.
-
-### 5.2 Deployment script
-
-`scripts/server/deploy.sh` is an explicit operator deployment entry point. It:
-
-1. enables strict shell behavior and acquires a non-blocking deployment lock;
-2. loads the server environment file;
-3. validates Node, pnpm, PM2, Git, and curl are available;
-4. refuses deployment if tracked repository files are dirty;
-5. captures the currently deployed `HEAD` as `PREVIOUS_SHA`;
-6. fetches the configured remote branch (`main` by default), resolves its exact commit as `TARGET_SHA`, and checks out `TARGET_SHA` detached;
-7. runs `pnpm install --frozen-lockfile`;
+1. loads the server environment;
+2. creates/acquires a non-blocking deployment lock;
+3. validates Node, pnpm, PM2, Git, curl, and flock;
+4. refuses deployment when tracked files are dirty;
+5. records `PREVIOUS_SHA`;
+6. fetches the configured branch (`main` by default), resolves `TARGET_SHA`, and checks it out detached;
+7. installs dependencies;
 8. runs `pnpm verify` before touching the running process;
-9. runs `pm2 startOrReload deploy/ecosystem.config.cjs --update-env`;
-10. retries the local liveness check at `http://127.0.0.1:3100/api/health` for a bounded period;
-11. if the new version never becomes healthy, checks out `PREVIOUS_SHA`, restores dependencies, rebuilds the previous version, reloads PM2, performs a best-effort health check on the restored version, and exits non-zero;
-12. on success, prints `TARGET_SHA` and exits zero.
+9. reloads PM2 with `--update-env`;
+10. retries `http://127.0.0.1:${TULIP_PORT:-3100}/api/health` for a bounded period;
+11. on failed target verification, restores the previous checkout without reloading PM2;
+12. on failed post-reload health, checks out `PREVIOUS_SHA`, restores dependencies, rebuilds, reloads PM2, performs a best-effort restored health check, and exits non-zero;
+13. reports only the successfully deployed commit SHA on success.
 
-Rollback never reports the failed target as successfully deployed. Failure logs must not print environment values.
+The repository currently has no committed `pnpm-lock.yaml`. Therefore this milestone uses:
 
-Database migrations are intentionally not executed by `deploy.sh` in this milestone. Schema changes remain an explicit operator step before deploying a version that requires them.
+```bash
+pnpm install --no-frozen-lockfile --lockfile=false
+```
 
-## 6. Health endpoint
+on the persistent server checkout so deployment does not create an untracked lockfile that could influence later installs. Introducing a committed lockfile is a separate dependency-hardening milestone.
 
-Add an unauthenticated `GET /api/health` route to the Next.js application.
+Database migrations are intentionally excluded from `deploy.sh`.
 
-Response contract:
+## Health endpoint
+
+Unauthenticated `GET /api/health` returns HTTP 200 with `Cache-Control: no-store` and exactly:
 
 ```json
 {
@@ -152,88 +108,52 @@ Response contract:
 }
 ```
 
-The endpoint is a liveness check only. It does not expose environment values, database metadata, OAuth configuration, build paths, or user/session information. It intentionally does not query PostgreSQL; database readiness is validated by migration/sync/application tests rather than a public liveness route.
+It is liveness-only. It does not query PostgreSQL or expose environment, OAuth, filesystem, build, user, or session metadata.
 
-## 7. Migration and first production sync rollout
+## Migration and first production rollout
 
-Migration execution and data refresh remain separate operations.
+Migration execution, application deployment, and data refresh remain separate operations.
 
-For a new database, apply migrations in numeric order. For an existing database already at `003`, apply only `004_waste_data_sync.sql` after confirming it has not already been applied.
-
-Required rollout order:
+Required order:
 
 1. provision PostgreSQL on localhost/private networking;
 2. create `/etc/tulip-home-os/tulip.env` with restrictive permissions;
 3. clone Tulip to `/srv/tulip-home-os`;
-4. explicitly apply the required migration(s) with `psql -v ON_ERROR_STOP=1`;
-5. deploy/start the Next.js application through `scripts/server/deploy.sh` and PM2;
+4. explicitly apply required migrations with `psql -v ON_ERROR_STOP=1`;
+5. run `bash scripts/server/deploy.sh`;
 6. verify `http://127.0.0.1:3100/api/health`;
-7. configure GitHub SSH trigger variables/secrets;
+7. configure GitHub SSH variables/secrets;
 8. manually dispatch `Refresh official data` once;
-9. verify region/waste rows were published and Today can consume them;
-10. only then set `TULIP_PUBLIC_DATA_SYNC_ENABLED=true` for scheduled refreshes.
+9. verify region/waste publication and Today behavior;
+10. only then set `TULIP_PUBLIC_DATA_SYNC_ENABLED=true`.
 
-The daily refresh workflow never applies migrations.
+For a database already at `003`, apply only `004_waste_data_sync.sql` after confirming it has not already been applied. The daily refresh workflow never applies migrations.
 
-## 8. Failure behavior
+## Failure behavior
 
-- Missing GitHub SSH configuration: fail before opening SSH.
-- SSH authentication/host-key mismatch: fail the workflow.
-- Existing server-local refresh/deploy lock: fail rather than overlap.
-- Missing server env file or required variable: fail without running sync/deploy.
-- Dirty tracked worktree: refuse deployment rather than overwrite server changes.
-- Public-data fetch/quality failure: existing sync runner returns failure and previous active snapshot remains intact.
-- Target verification failure before PM2 reload: keep the currently running process untouched and exit non-zero.
-- Health failure after PM2 reload: rebuild/reload `PREVIOUS_SHA`, perform a best-effort restored health check, and exit non-zero.
+- Missing GitHub SSH configuration: fail before SSH.
+- Host-key/authentication failure: fail workflow.
+- Existing refresh/deploy lock: fail rather than overlap.
+- Missing server env: fail without running the operation.
+- Dirty tracked worktree: refuse deployment.
+- Target verification failure: restore previous checkout, leave the currently running process untouched, and exit non-zero.
+- New-version health failure: rebuild/reload `PREVIOUS_SHA` and exit non-zero.
+- Public-data quality/upstream failure: existing sync guarantees preserve the previous active snapshot.
+- No failure path intentionally prints server secrets or the SSH private key.
 
-No failure path should print the database URL, API key, OAuth secret, or SSH private key.
+## Testing
 
-## 9. Testing strategy
+TDD contracts verify:
 
-Use TDD for each production change.
+- manual + guarded daily workflow triggers;
+- SSH-only credential boundary and pinned host verification;
+- absence of DB/API credentials and migration/dependency operations from the workflow;
+- refresh strict mode, lock, external env, and sync-only responsibility;
+- PM2 loopback production configuration with no committed secrets;
+- deploy dirty-tree guard, exact target selection, verify-before-reload, local health check, and previous-SHA rollback;
+- minimal health response;
+- PostgreSQL 17 integration, offline web typecheck, full workspace verification, and Next.js production build remain green.
 
-Contract tests will verify:
+## Non-goals
 
-- refresh workflow contains manual + scheduled trigger but no database/API-key secrets;
-- refresh workflow uses pinned known-hosts data and strict non-interactive SSH;
-- workflow calls only the server-local refresh entry point;
-- server refresh script uses strict mode, `flock`, external env file, and existing sync CLI;
-- server refresh script does not run migration/deployment commands;
-- PM2 configuration binds Next.js to loopback and contains no committed secrets;
-- deploy script refuses dirty tracked files, verifies before restart, performs a local `/api/health` check, and contains an explicit previous-SHA rollback path;
-- health route returns the stable minimal response;
-- README verification count matches the current 138 core behavior tests before new tests are added, and is updated again to the final count at completion.
-
-CI must remain green for:
-
-- core TypeScript/type behavior tests;
-- PostgreSQL 17 integration;
-- offline web typecheck;
-- full workspace verification;
-- Next.js production build.
-
-## 10. Documentation updates
-
-README will be updated to:
-
-- correct the stale `136` core-test count before recording the final new count;
-- document server-local production env ownership;
-- document explicit migration order;
-- document PM2/local health check commands;
-- document GitHub SSH trigger variables/secrets;
-- state that PostgreSQL 5432 must not be opened merely for GitHub-hosted Actions;
-- document manual-first, scheduled-second public-data rollout.
-
-## 11. Non-goals
-
-This milestone does not:
-
-- provision a VPS or DNS record;
-- expose PostgreSQL publicly;
-- introduce Docker/Kubernetes;
-- introduce a self-hosted GitHub runner;
-- add a general migration framework;
-- change Bouquet OAuth semantics;
-- add a separate public API daemon;
-- add monitoring/alerting infrastructure beyond GitHub Actions failure state and PM2/local health checks;
-- hard-code the user's infrastructure hostname, port, or credentials into the public repository.
+This milestone does not provision VPS/DNS/PostgreSQL, expose PostgreSQL publicly, introduce Docker/Kubernetes or a self-hosted runner, add a migration framework, change Bouquet OAuth semantics, add a second public API daemon, or hard-code real infrastructure coordinates/credentials in the repository.
