@@ -153,3 +153,22 @@ test("region sync stages the complete snapshot and publishes once", async () => 
   assert.equal(published.length, 3);
   assert.equal(published[2].regionCode, "2920011400");
 });
+
+test("region sync rejects an empty upstream snapshot without replacing the active catalog", async () => {
+  let publications = 0;
+
+  await assert.rejects(
+    () => syncRegionCatalog({
+      client: { fetchAll: async () => [] },
+      catalog: {
+        publishSnapshot: async () => {
+          publications += 1;
+        }
+      },
+      now: () => syncedAt
+    }),
+    /region snapshot is empty/
+  );
+
+  assert.equal(publications, 0);
+});
