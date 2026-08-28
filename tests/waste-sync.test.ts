@@ -124,6 +124,26 @@ test("waste sync refuses publication above the unresolved/malformed threshold", 
   assert.equal(publications, 0);
 });
 
+test("waste sync rejects an empty upstream snapshot without replacing the active schedules", async () => {
+  let publications = 0;
+
+  await assert.rejects(
+    () => syncWasteSchedules({
+      client: { fetchAll: async () => [] },
+      regions: catalog(),
+      store: {
+        publishSnapshot: async () => {
+          publications += 1;
+        }
+      },
+      now: () => new Date("2026-08-28T00:00:00.000Z")
+    }),
+    /household-waste snapshot is empty/
+  );
+
+  assert.equal(publications, 0);
+});
+
 class RecordingSql implements SqlExecutor {
   readonly calls: Array<{ text: string; params: readonly unknown[] }> = [];
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
