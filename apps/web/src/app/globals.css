@@ -40,6 +40,7 @@ button { font: inherit; }
   font-weight: 800;
   width: fit-content;
 }
+.primaryButton:disabled { opacity: .48; cursor: not-allowed; }
 
 .todayPage { display: grid; gap: 24px; }
 .todayHeader { display: flex; justify-content: space-between; gap: 20px; align-items: end; }
@@ -110,7 +111,10 @@ button { font: inherit; }
 .onboardingHeader { display: grid; gap: 10px; }
 .homeForm { display: grid; gap: 14px; margin-top: 8px; }
 .homeForm label { display: grid; gap: 7px; font-size: 13px; font-weight: 800; color: #51574e; }
-.homeForm input { width: 100%; min-height: 52px; border: 1px solid #dfe3da; border-radius: 16px; background: white; padding: 0 15px; font: inherit; color: #20231f; outline: none; }
-.homeForm input:focus { border-color: #89977d; box-shadow: 0 0 0 3px rgba(116,129,104,.12); }
+.homeForm input, .homeForm select { width: 100%; min-height: 52px; border: 1px solid #dfe3da; border-radius: 16px; background: white; padding: 0 15px; font: inherit; color: #20231f; outline: none; }
+.homeForm select { appearance: auto; }
+.homeForm input:focus, .homeForm select:focus { border-color: #89977d; box-shadow: 0 0 0 3px rgba(116,129,104,.12); }
+.homeForm select:disabled { background: #f0f2ed; color: #9a9f96; cursor: not-allowed; }
+.homeForm input[type="hidden"] { display: none; }
 .homeForm small { font-size: 11px; line-height: 1.5; font-weight: 500; color: #92978f; }
 .formSubmit { width: 100%; margin-top: 6px; }
