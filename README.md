@@ -19,6 +19,7 @@ Implemented and verified:
 - Home region validation against the active official catalog
 - normalized household-waste importer with rejected-row safety threshold
 - PostgreSQL waste snapshot store with stale-row deactivation
+- empty upstream region/waste snapshot rejection that preserves the previous active snapshot
 - Today waste provider that combines exact locality and district schedules in Asia/Seoul
 - operational official-data sync runner and CLI
 - PostgreSQL 17 integration verification and Next.js production build in GitHub Actions
@@ -35,7 +36,7 @@ npm run typecheck:web:offline
 pnpm verify
 ```
 
-Current feature-head verification includes **134 core behavior tests**, one PostgreSQL 17 end-to-end integration test, offline web typechecking, and the Next.js production build.
+Current feature-head verification includes **136 core behavior tests**, one PostgreSQL 17 end-to-end integration test, offline web typechecking, and the Next.js production build.
 
 For the PostgreSQL integration test, provide a dedicated test database:
 
@@ -87,7 +88,7 @@ Run a complete refresh with:
 npm run sync:official-data
 ```
 
-The runner refreshes the region catalog first, then resolves and publishes the household-waste snapshot against that catalog. If the malformed/unresolved waste ratio exceeds the configured threshold, the new waste snapshot is rejected and the command exits unsuccessfully instead of replacing the previous active snapshot.
+The runner refreshes the region catalog first, then resolves and publishes the household-waste snapshot against that catalog. If the malformed/unresolved waste ratio exceeds the configured threshold, the new waste snapshot is rejected and the command exits unsuccessfully instead of replacing the previous active snapshot. A zero-row region or household-waste response is also rejected before publication so a transient upstream failure cannot deactivate the previous active snapshot.
 
 Keep the API URLs as deployment configuration even when using the examples above. This allows the upstream endpoint to be changed without rebuilding Tulip.
 
