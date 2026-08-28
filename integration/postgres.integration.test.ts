@@ -9,12 +9,15 @@ import {
   PostgresTaskOccurrenceRepository
 } from "../apps/api/src/persistence/postgres-repositories.ts";
 import { createPgPoolExecutor } from "../apps/api/src/persistence/pg-executor.ts";
+import { PostgresRegionCatalog } from "../apps/api/src/regions/postgres-region-catalog.ts";
+import { PostgresWasteSyncStore } from "../apps/api/src/waste/postgres-waste-sync-store.ts";
 import { createTulipWebRuntime } from "../apps/web/src/server/tulip-runtime.ts";
 
 const migrationUrls = [
   new URL("../apps/api/db/migrations/001_initial.sql", import.meta.url),
   new URL("../apps/api/db/migrations/002_unique_home_owner.sql", import.meta.url),
-  new URL("../apps/api/db/migrations/003_persistent_auth_state.sql", import.meta.url)
+  new URL("../apps/api/db/migrations/003_persistent_auth_state.sql", import.meta.url),
+  new URL("../apps/api/db/migrations/004_waste_data_sync.sql", import.meta.url)
 ];
 
 function cookieValue(cookie: string | undefined, name: string): string | null {
@@ -25,7 +28,7 @@ function cookieValue(cookie: string | undefined, name: string): string | null {
   return decodeURIComponent(rawValue.join("="));
 }
 
-test("PostgreSQL repositories persist Home OS data and authentication across runtimes", async () => {
+test("PostgreSQL repositories persist Home OS data, public schedules, and authentication across runtimes", async () => {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   assert.ok(databaseUrl, "DATABASE_URL is required for PostgreSQL integration tests");
 
@@ -39,6 +42,93 @@ test("PostgreSQL repositories persist Home OS data and authentication across run
     for (const migrationUrl of migrationUrls) {
       await sql.query(await readFile(migrationUrl, "utf8"));
     }
+
+    const regions = new PostgresRegionCatalog(sql);
+    await regions.publishSnapshot([
+      {
+        regionCode: "2900000000",
+        sido: "광주광역시",
+        level: "SIDO",
+        active: true,
+        sourceUpdatedAt: "2026-08-26T00:00:00.000Z",
+        syncedAt: "2026-08-28T00:00:00.000Z"
+      },
+      {
+        regionCode: "2920000000",
+        sido: "광주광역시",
+        sigungu: "광산구",
+        parentRegionCode: "2900000000",
+        level: "SIGUNGU",
+        active: true,
+        sourceUpdatedAt: "2026-08-26T00:00:00.000Z",
+        syncedAt: "2026-08-28T00:00:00.000Z"
+      },
+      {
+        regionCode: "2920011400",
+        sido: "광주광역시",
+        sigungu: "광산구",
+        locality: "수완동",
+        parentRegionCode: "2920000000",
+        level: "EUPMYEONDONG",
+        active: true,
+        sourceUpdatedAt: "2026-08-26T00:00:00.000Z",
+        syncedAt: "2026-08-28T00:00:00.000Z"
+      }
+    ]);
+
+    const wasteStore = new PostgresWasteSyncStore(sql);
+    const activeWasteSnapshot = [
+      {
+        id: "integration-waste-district",
+        regionCode: "29200",
+        wasteType: "GENERAL" as const,
+        weekdays: [5],
+        startTime: "20:00",
+        methodDescription: "종량제 봉투",
+        sourceUpdatedAt: "2026-08-26T00:00:00.000Z",
+        sourceRowKey: "integration-source-district",
+        sourceScopeName: "광산구 전체",
+        syncedAt: "2026-08-28T00:00:00.000Z"
+      },
+      {
+        id: "integration-waste-locality",
+        regionCode: "2920011400",
+        wasteType: "RECYCLING" as const,
+        weekdays: [5],
+        startTime: "21:00",
+        methodDescription: "품목별 분리",
+        sourceUpdatedAt: "2026-08-26T00:00:00.000Z",
+        sourceRowKey: "integration-source-locality",
+        sourceScopeName: "수완동",
+        syncedAt: "2026-08-28T00:00:00.000Z"
+      }
+    ];
+    await wasteStore.publishSnapshot([
+      ...activeWasteSnapshot,
+      {
+        id: "integration-waste-stale",
+        regionCode: "29200",
+        wasteType: "FOOD",
+        weekdays: [5],
+        startTime: "19:00",
+        methodDescription: "전용 용기",
+        sourceUpdatedAt: "2026-08-25T00:00:00.000Z",
+        sourceRowKey: "integration-source-stale",
+        sourceScopeName: "광산구 전체",
+        syncedAt: "2026-08-27T00:00:00.000Z"
+      }
+    ]);
+    await wasteStore.publishSnapshot(activeWasteSnapshot);
+    await wasteStore.publishSnapshot(activeWasteSnapshot);
+
+    const wasteRows = await sql.query<{ id: string; active: boolean }>(
+      "SELECT id, active FROM waste_schedules WHERE id LIKE 'integration-waste-%' ORDER BY id"
+    );
+    assert.deepEqual(wasteRows.rows, [
+      { id: "integration-waste-district", active: true },
+      { id: "integration-waste-locality", active: true },
+      { id: "integration-waste-stale", active: false }
+    ]);
 
     const homes = new PostgresHomeRepository(sql);
     const routines = new PostgresRoutineRepository(sql);
@@ -182,6 +272,28 @@ test("PostgreSQL repositories persist Home OS data and authentication across run
     assert.equal(me.status, 200);
     assert.deepEqual(me.body, { userId: "runtime-bouquet-user", displayName: "Runtime User" });
 
+    const regionResponse = await runtimeC.handleApi({ method: "GET", path: "/v1/regions/sido" }, sessionCookie);
+    assert.equal(regionResponse.status, 200);
+    assert.deepEqual(regionResponse.body, [{
+      regionCode: "2900000000",
+      name: "광주광역시",
+      level: "SIDO",
+      sido: "광주광역시"
+    }]);
+
+    const invalidHome = await runtimeC.handleApi({
+      method: "POST",
+      path: "/v1/homes",
+      body: {
+        name: "잘못된 런타임 집",
+        regionCode: "2920011400",
+        sido: "광주광역시",
+        sigungu: "광산구",
+        eupmyeondong: "다른동"
+      }
+    }, sessionCookie);
+    assert.equal(invalidHome.status, 400);
+
     const created = await runtimeC.handleApi({
       method: "POST",
       path: "/v1/homes",
@@ -194,6 +306,18 @@ test("PostgreSQL repositories persist Home OS data and authentication across run
       }
     }, sessionCookie);
     assert.equal(created.status, 201);
+
+    const today = await runtimeC.handleApi({
+      method: "GET",
+      path: "/v1/today",
+      query: { date: "2026-08-28" }
+    }, sessionCookie);
+    assert.equal(today.status, 200);
+    const todayItems = (today.body as { items: TaskOccurrence[] }).items.filter((item) => item.sourceType === "WASTE");
+    assert.deepEqual(todayItems.map((item) => item.sourceId), [
+      "integration-waste-district",
+      "integration-waste-locality"
+    ]);
 
     runtimeD = createTulipWebRuntime(runtimeEnv, runtimeFetcher);
     const current = await runtimeD.handleApi({ method: "GET", path: "/v1/homes/current" }, sessionCookie);

@@ -9,6 +9,7 @@
     "typecheck:core": "tsc --noEmit -p tsconfig.core.json",
     "verify:core": "npm run typecheck:core && npm run test:core",
     "typecheck:web:offline": "tsc --noEmit -p tsconfig.web-offline.json",
+    "sync:official-data": "node --experimental-strip-types apps/api/src/sync/run-official-data-sync.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "pnpm --filter @tulip/api build && pnpm --filter @tulip/web exec tsc --noEmit -p tsconfig.json",
     "build": "pnpm -r build",

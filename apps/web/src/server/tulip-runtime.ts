@@ -40,8 +40,11 @@ import type {
   RoutineRepository,
   TaskOccurrenceRepository
 } from "../../../api/src/persistence/repositories.ts";
+import { PostgresRegionCatalog } from "../../../api/src/regions/postgres-region-catalog.ts";
+import type { RegionCatalogReader } from "../../../api/src/regions/region-catalog.ts";
 import { RoutineService } from "../../../api/src/routines/routine-service.ts";
 import { RepositoryTodaySource } from "../../../api/src/today/repository-today-source.ts";
+import { PostgresWasteScheduleProvider } from "../../../api/src/waste/postgres-waste-provider.ts";
 import type { WasteScheduleProvider } from "../../../api/src/waste/waste-provider.ts";
 
 function sessionTokenFromCookie(cookieHeader: string | undefined): string | null {
@@ -87,6 +90,8 @@ interface RuntimePersistence {
   occurrences: TaskOccurrenceRepository;
   transient: TransientAuthStore;
   sessions: TulipSessionStore;
+  regions?: RegionCatalogReader;
+  waste: WasteScheduleProvider;
   close(): Promise<void>;
 }
 
@@ -101,6 +106,7 @@ function createRuntimePersistence(env: Record<string, string | undefined>): Runt
       occurrences: new InMemoryTaskOccurrenceRepository(),
       transient: new InMemoryTransientAuthStore(),
       sessions: new InMemoryTulipSessionStore(),
+      waste: emptyWasteProvider,
       async close() {}
     };
   }
@@ -117,6 +123,8 @@ function createRuntimePersistence(env: Record<string, string | undefined>): Runt
     occurrences: new PostgresTaskOccurrenceRepository(sql),
     transient: new PostgresTransientAuthStore(sql),
     sessions: new PostgresTulipSessionStore(sql),
+    regions: new PostgresRegionCatalog(sql),
+    waste: new PostgresWasteScheduleProvider(sql),
     async close() {
       await sql.close();
     }
@@ -135,24 +143,25 @@ export function createTulipWebRuntime(
 ): TulipWebRuntime {
   const config = loadBouquetOAuthConfig(env);
   const persistence = createRuntimePersistence(env);
-  const { homes, routines, items, occurrences, transient, sessions } = persistence;
+  const { homes, routines, items, occurrences, transient, sessions, regions, waste } = persistence;
   const oauth = new BouquetOAuthClient(config, fetcher);
   const sso = new BouquetSsoController({ config, oauth, transient, sessions });
   const now = () => new Date();
   const createId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
 
-  const homeService = new HomeManagementService({ homes, now, createId: () => createId("home") });
+  const homeService = new HomeManagementService({ homes, regions, now, createId: () => createId("home") });
   const routineService = new RoutineService({ homes, routines, now, createId: () => createId("routine") });
   const itemService = new HomeItemService({ homes, items, now, createId: () => createId("item") });
   const occurrenceService = new OccurrenceService({ homes, routines, items, occurrences, now });
-  const todaySource = new RepositoryTodaySource({ routines, items, occurrences, waste: emptyWasteProvider });
+  const todaySource = new RepositoryTodaySource({ routines, items, occurrences, waste });
   const api = new TulipApiRouter({
     auth: new SessionAuthAdapter(sessions),
     homes: homeService,
     routines: routineService,
     items: itemService,
     occurrences: occurrenceService,
-    todaySource
+    todaySource,
+    regions
   });
 
   return {
