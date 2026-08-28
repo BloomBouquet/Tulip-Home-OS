@@ -40,12 +40,16 @@ TARGET_SHA="$(git rev-parse "origin/${DEPLOY_BRANCH}")"
 
 git checkout --detach "$TARGET_SHA"
 
-restore_previous_checkout() {
-  git checkout --detach "$PREVIOUS_SHA"
-  pnpm install --no-frozen-lockfile
+install_dependencies() {
+  pnpm install --no-frozen-lockfile --lockfile=false
 }
 
-if ! pnpm install --no-frozen-lockfile || ! pnpm verify; then
+restore_previous_checkout() {
+  git checkout --detach "$PREVIOUS_SHA"
+  install_dependencies
+}
+
+if ! install_dependencies || ! pnpm verify; then
   echo "target verification failed; restoring previous checkout" >&2
   restore_previous_checkout
   exit 1
@@ -65,7 +69,7 @@ done
 if [[ "$health_ok" != "true" ]]; then
   echo "new deployment failed health check; rolling back" >&2
   git checkout --detach "$PREVIOUS_SHA"
-  pnpm install --no-frozen-lockfile
+  install_dependencies
   pnpm build
   pm2 startOrReload deploy/ecosystem.config.cjs --update-env
 
