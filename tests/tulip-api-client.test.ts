@@ -35,6 +35,25 @@ test("createHome sends normalized JSON payload", async () => {
   });
 });
 
+test("region selector client follows the server hierarchy and keeps session credentials", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const client = new TulipApiClient("/api/tulip", async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  await client.sidoRegions();
+  await client.sigunguRegions("2900000000");
+  await client.localityRegions("2920000000");
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    "/api/tulip/v1/regions/sido",
+    "/api/tulip/v1/regions/sigungu?parentCode=2900000000",
+    "/api/tulip/v1/regions/localities?parentCode=2920000000"
+  ]);
+  assert.ok(calls.every((call) => call.init?.credentials === "include"));
+});
+
 test("default client targets the same-origin Tulip API proxy", async () => {
   let requested = "";
   const client = new TulipApiClient(undefined, async (url) => {
