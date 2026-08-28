@@ -33,7 +33,7 @@ test("server deploy verifies before reload and rolls back a failed health check"
   assert.match(deploy, /TARGET_SHA=/);
   assert.match(deploy, /git fetch/);
   assert.match(deploy, /git checkout --detach "\$TARGET_SHA"/);
-  assert.match(deploy, /pnpm install --no-frozen-lockfile/);
+  assert.match(deploy, /pnpm install --no-frozen-lockfile --lockfile=false/);
   assert.match(deploy, /pnpm verify/);
   assert.match(deploy, /pm2 startOrReload deploy\/ecosystem\.config\.cjs --update-env/);
   assert.match(deploy, /127\.0\.0\.1.*\/api\/health/);
