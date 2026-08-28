@@ -43,8 +43,8 @@ Default documented layout:
 
 ```text
 /srv/tulip-home-os/                 # git checkout / application files
-/etc/tulip-home-os/tulip.env        # server-only environment, chmod 600
-/var/lock/tulip-home-os/            # sync lock files
+/srv/tulip-home-os/.runtime/locks/  # service-account-owned locks, mode 0700
+/etc/tulip-home-os/tulip.env        # server-only environment, mode 0600
 ```
 
 The paths are configurable through server-local environment variables where useful, but the public repository must not hard-code an infrastructure hostname, IP address, database credential, or API key.
@@ -72,7 +72,7 @@ Instead it:
 3. writes the pinned known-hosts content;
 4. validates host/port/user variables are non-empty;
 5. opens one non-interactive SSH session;
-6. executes the server-local refresh script in `/srv/tulip-home-os`.
+6. executes `/srv/tulip-home-os/scripts/server/refresh-official-data.sh`.
 
 SSH uses `BatchMode=yes`, `StrictHostKeyChecking=yes`, and a bounded connection timeout. Failure of SSH or the remote command fails the workflow.
 
@@ -83,12 +83,13 @@ Add `scripts/server/refresh-official-data.sh`.
 The script:
 
 1. enables strict shell behavior (`set -Eeuo pipefail`);
-2. acquires a non-blocking `flock` lock so two refreshes cannot overlap;
-3. changes to the deployed repository directory;
-4. loads `/etc/tulip-home-os/tulip.env` without printing secret values;
-5. validates required server-only variables are present;
-6. runs `npm run sync:official-data`;
-7. propagates the command's exit status.
+2. ensures `.runtime/locks` exists with mode `0700`;
+3. acquires a non-blocking `flock` lock so two refreshes cannot overlap;
+4. changes to the deployed repository directory;
+5. loads `/etc/tulip-home-os/tulip.env` without printing secret values;
+6. validates required server-only variables are present;
+7. runs `npm run sync:official-data`;
+8. propagates the command's exit status.
 
 The script does not run `git pull`, install dependencies, build the application, restart PM2, or apply database migrations. Daily data refresh must be isolated from application deployment and schema changes.
 
@@ -121,16 +122,20 @@ The process inherits server-side environment variables from `deploy.sh`.
 
 `scripts/server/deploy.sh` is an explicit operator deployment entry point. It:
 
-1. acquires a deployment lock;
+1. enables strict shell behavior and acquires a non-blocking deployment lock;
 2. loads the server environment file;
-3. validates Node/pnpm/PM2 are available;
-4. fetches the configured remote branch (`main` by default) and checks out the exact remote commit;
-5. runs `pnpm install --frozen-lockfile`;
-6. runs `pnpm verify` before restart;
-7. runs `pm2 startOrReload deploy/ecosystem.config.cjs --update-env`;
-8. waits briefly and checks the local liveness endpoint;
-9. restores/keeps the previous running process if the new health check does not become healthy, where PM2 can do so without destructive cleanup;
-10. prints the deployed commit SHA, not secrets.
+3. validates Node, pnpm, PM2, Git, and curl are available;
+4. refuses deployment if tracked repository files are dirty;
+5. captures the currently deployed `HEAD` as `PREVIOUS_SHA`;
+6. fetches the configured remote branch (`main` by default), resolves its exact commit as `TARGET_SHA`, and checks out `TARGET_SHA` detached;
+7. runs `pnpm install --frozen-lockfile`;
+8. runs `pnpm verify` before touching the running process;
+9. runs `pm2 startOrReload deploy/ecosystem.config.cjs --update-env`;
+10. retries the local liveness check at `http://127.0.0.1:3100/api/health` for a bounded period;
+11. if the new version never becomes healthy, checks out `PREVIOUS_SHA`, restores dependencies, rebuilds the previous version, reloads PM2, performs a best-effort health check on the restored version, and exits non-zero;
+12. on success, prints `TARGET_SHA` and exits zero.
+
+Rollback never reports the failed target as successfully deployed. Failure logs must not print environment values.
 
 Database migrations are intentionally not executed by `deploy.sh` in this milestone. Schema changes remain an explicit operator step before deploying a version that requires them.
 
@@ -159,9 +164,9 @@ Required rollout order:
 
 1. provision PostgreSQL on localhost/private networking;
 2. create `/etc/tulip-home-os/tulip.env` with restrictive permissions;
-3. clone/deploy Tulip to `/srv/tulip-home-os`;
+3. clone Tulip to `/srv/tulip-home-os`;
 4. explicitly apply the required migration(s) with `psql -v ON_ERROR_STOP=1`;
-5. deploy/start the Next.js application through PM2;
+5. deploy/start the Next.js application through `scripts/server/deploy.sh` and PM2;
 6. verify `http://127.0.0.1:3100/api/health`;
 7. configure GitHub SSH trigger variables/secrets;
 8. manually dispatch `Refresh official data` once;
@@ -174,11 +179,12 @@ The daily refresh workflow never applies migrations.
 
 - Missing GitHub SSH configuration: fail before opening SSH.
 - SSH authentication/host-key mismatch: fail the workflow.
-- Existing server-local refresh lock: fail rather than overlap.
-- Missing server env file or required variable: fail without running sync.
+- Existing server-local refresh/deploy lock: fail rather than overlap.
+- Missing server env file or required variable: fail without running sync/deploy.
+- Dirty tracked worktree: refuse deployment rather than overwrite server changes.
 - Public-data fetch/quality failure: existing sync runner returns failure and previous active snapshot remains intact.
-- Application deploy verification failure: deployment script returns non-zero and does not report success.
-- Health endpoint failure after PM2 restart: deployment script returns non-zero.
+- Target verification failure before PM2 reload: keep the currently running process untouched and exit non-zero.
+- Health failure after PM2 reload: rebuild/reload `PREVIOUS_SHA`, perform a best-effort restored health check, and exit non-zero.
 
 No failure path should print the database URL, API key, OAuth secret, or SSH private key.
 
@@ -194,7 +200,7 @@ Contract tests will verify:
 - server refresh script uses strict mode, `flock`, external env file, and existing sync CLI;
 - server refresh script does not run migration/deployment commands;
 - PM2 configuration binds Next.js to loopback and contains no committed secrets;
-- deploy script verifies before restart and performs a local `/api/health` check;
+- deploy script refuses dirty tracked files, verifies before restart, performs a local `/api/health` check, and contains an explicit previous-SHA rollback path;
 - health route returns the stable minimal response;
 - README verification count matches the current 138 core behavior tests before new tests are added, and is updated again to the final count at completion.
 
