@@ -4,6 +4,7 @@ import type { HomeManagementService } from "../home/home-management-service.ts";
 import { NotFoundError } from "../home/home-service.ts";
 import type { HomeItemService } from "../items/item-service.ts";
 import type { OccurrenceService } from "../occurrences/occurrence-service.ts";
+import type { RegionCatalogEntry, RegionCatalogReader } from "../regions/region-catalog.ts";
 import type { RoutineService } from "../routines/routine-service.ts";
 import { buildToday, type TodaySource } from "../today/today-aggregator.ts";
 
@@ -27,6 +28,7 @@ export interface TulipApiRouterDependencies {
   items: HomeItemService;
   occurrences: OccurrenceService;
   todaySource: TodaySource;
+  regions?: RegionCatalogReader;
 }
 
 function asObject(value: unknown): Record<string, any> {
@@ -53,6 +55,24 @@ function dateFromQuery(value: string | undefined): Date {
   return new Date(`${value}T12:00:00+09:00`);
 }
 
+function parentRegionCode(value: string | undefined): string {
+  if (!value) throw new RangeError("parentCode is required");
+  if (!/^\d{10}$/.test(value)) throw new RangeError("parentCode must contain exactly 10 digits");
+  return value;
+}
+
+function selectorRegion(entry: RegionCatalogEntry): Record<string, string> {
+  const result: Record<string, string> = {
+    regionCode: entry.regionCode,
+    name: entry.level === "SIDO" ? entry.sido : entry.level === "SIGUNGU" ? entry.sigungu! : entry.locality!,
+    level: entry.level,
+    sido: entry.sido
+  };
+  if (entry.sigungu) result.sigungu = entry.sigungu;
+  if (entry.locality) result.eupmyeondong = entry.locality;
+  return result;
+}
+
 function response(status: number, body?: unknown): ApiResponse {
   return body === undefined ? { status } : { status, body };
 }
@@ -68,6 +88,11 @@ export class TulipApiRouter {
     return this.dependencies.auth.verify(bearerToken(request.headers));
   }
 
+  private regionCatalog(): RegionCatalogReader {
+    if (!this.dependencies.regions) throw new NotFoundError();
+    return this.dependencies.regions;
+  }
+
   async handle(request: ApiRequest): Promise<ApiResponse> {
     try {
       const identity = await this.identity(request);
@@ -76,6 +101,19 @@ export class TulipApiRouter {
 
       if (method === "GET" && path === "/v1/me") {
         return response(200, identity);
+      }
+
+      if (method === "GET" && path === "/v1/regions/sido") {
+        const entries = await this.regionCatalog().listSido();
+        return response(200, entries.map(selectorRegion));
+      }
+      if (method === "GET" && path === "/v1/regions/sigungu") {
+        const entries = await this.regionCatalog().listChildren(parentRegionCode(request.query?.parentCode), "SIGUNGU");
+        return response(200, entries.map(selectorRegion));
+      }
+      if (method === "GET" && path === "/v1/regions/localities") {
+        const entries = await this.regionCatalog().listChildren(parentRegionCode(request.query?.parentCode), "EUPMYEONDONG");
+        return response(200, entries.map(selectorRegion));
       }
 
       if (method === "POST" && path === "/v1/homes") {
