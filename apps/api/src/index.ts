@@ -4,6 +4,8 @@ export * from "./routines/recurrence.ts";
 export * from "./today/today-aggregator.ts";
 export * from "./waste/waste-normalizer.ts";
 export * from "./waste/waste-provider.ts";
+export * from "./waste/waste-sync-service.ts";
+export * from "./waste/postgres-waste-sync-store.ts";
 export * from "./items/item-service.ts";
 export * from "./occurrences/occurrence-service.ts";
 export * from "./persistence/in-memory-repositories.ts";
