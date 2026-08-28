@@ -1,0 +1,47 @@
+name: Refresh official data
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:10 Asia/Seoul (18:10 UTC on the previous calendar day)
+    - cron: '10 18 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event_name == 'workflow_dispatch' || vars.TULIP_PUBLIC_DATA_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.TULIP_DATABASE_URL }}
+      DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+      TULIP_REGION_API_URL: ${{ vars.TULIP_REGION_API_URL }}
+      TULIP_WASTE_API_URL: ${{ vars.TULIP_WASTE_API_URL }}
+      TULIP_WASTE_MAX_REJECTED_RATIO: ${{ vars.TULIP_WASTE_MAX_REJECTED_RATIO || '0.2' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Refresh official public data
+        run: npm run sync:official-data
