@@ -45,6 +45,7 @@
 - Region resolution that prefers exact locality and falls back to district scope
 - Waste import rejection threshold for malformed/unresolved source rows
 - PostgreSQL waste snapshot publication with stale imported-row deactivation
+- Empty upstream region/waste snapshot rejection before publication, preserving the previous active snapshot
 - PostgreSQL Today waste provider using exact locality plus five-digit district scope
 - Production PostgreSQL runtime wiring for official region and waste providers
 - Official-data sync runner that refreshes regions before waste and always closes persistence
@@ -56,7 +57,7 @@
 Latest verified feature-head GitHub Actions gate verifies:
 
 - Core TypeScript typecheck
-- **134 core behavior tests passing, 0 failures**
+- **136 core behavior tests passing, 0 failures**
 - PostgreSQL 17 end-to-end integration test passing
 - Migrations `001 -> 002 -> 003 -> 004` applied in order
 - Cross-instance OAuth state persistence and one-time consumption
@@ -65,6 +66,7 @@ Latest verified feature-head GitHub Actions gate verifies:
 - Region snapshot publication and authenticated selector hierarchy
 - Home rejection when display hierarchy does not match the canonical locality code
 - Waste snapshot idempotency and stale imported-row deactivation
+- Empty region/waste upstream responses rejected before snapshot publication
 - Today loading both district- and locality-scoped waste schedules
 - Official-data sync configuration, ordering, rejected-publication failure, and guaranteed persistence cleanup
 - Offline web TypeScript verification
@@ -121,6 +123,7 @@ Domain repositories / API services
 - Home onboarding stores no GPS coordinates, exact address, or apartment unit.
 - Home region data must match an active canonical 읍·면·동 entry before persistence in PostgreSQL mode.
 - Waste import does not replace the active snapshot when malformed/unresolved source quality exceeds the configured threshold.
+- Zero-row region or household-waste upstream responses fail before publication, so the previous active snapshot remains available.
 - Region refresh runs before waste refresh so waste matching uses the newest successfully published region catalog.
 
 ## Deployment notes
@@ -140,7 +143,7 @@ Configure these server-only/public-data runtime values before executing the firs
 - `TULIP_WASTE_API_URL`
 - optional `TULIP_WASTE_MAX_REJECTED_RATIO` (`0..1`, default `0.2`)
 
-Run `npm run sync:official-data` only after migration `004` is applied. A rejected waste snapshot exits unsuccessfully and leaves the previously active imported snapshot in place.
+Run `npm run sync:official-data` only after migration `004` is applied. A rejected or unexpectedly empty source snapshot exits unsuccessfully and leaves the previously active imported snapshot in place.
 
 Existing sessions created by the older process-local in-memory implementation cannot be migrated and may require users to sign in again during rollout.
 
