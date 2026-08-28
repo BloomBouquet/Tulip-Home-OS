@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   selectLocality,
   selectSigungu,
@@ -10,12 +10,14 @@ import {
 } from "../../../lib/home-onboarding-model.ts";
 import { TulipApiClient } from "../../../lib/tulip-api-client.ts";
 
+const onboardingApiClient = new TulipApiClient();
+
 function selectedOption(options: RegionSelectionOption[], regionCode: string): RegionSelectionOption | undefined {
   return options.find((option) => option.regionCode === regionCode);
 }
 
 export default function HomeOnboardingPage() {
-  const client = useMemo(() => new TulipApiClient(), []);
+  const client = onboardingApiClient;
   const [selection, setSelection] = useState<RegionSelectionState>({});
   const [sidoOptions, setSidoOptions] = useState<RegionSelectionOption[]>([]);
   const [sigunguOptions, setSigunguOptions] = useState<RegionSelectionOption[]>([]);
