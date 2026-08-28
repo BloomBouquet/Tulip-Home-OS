@@ -19,6 +19,7 @@ test("PM2 keeps the Tulip web process on a loopback-only production baseline", a
   assert.match(pm2, /3100/);
   assert.match(pm2, /@tulip\/web/);
   assert.match(pm2, /NODE_ENV:\s*["']production["']/);
+  assert.doesNotMatch(pm2, /TULIP_BIND_HOST/);
   assert.doesNotMatch(pm2, /DATABASE_URL|DATA_GO_KR_API_KEY|BOUQUET_CLIENT_SECRET/);
 });
 
